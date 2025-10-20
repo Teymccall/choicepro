@@ -1,0 +1,154 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+
+    "users": {
+      "$uid": {
+        ".read": "auth !== null",
+        ".write": "$uid === auth.uid",
+        "fcmTokens": {
+          ".read": "$uid === auth.uid",
+          ".write": "$uid === auth.uid"
+        },
+        "inviteCodes": {
+          ".read": "auth != null",
+          ".write": "auth != null && ($uid === auth.uid || root.child('users').child($uid).child('inviteCodes').child(auth.uid).exists())",
+          "$codeId": {
+            ".validate": "newData.hasChildren(['code', 'createdBy', 'createdAt', 'expiresAt', 'used'])"
+          }
+        }
+      }
+    },
+
+    "userSettings": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "notifications": {
+          ".read": "$uid === auth.uid",
+          ".write": "$uid === auth.uid"
+        },
+        "theme": {
+          ".validate": "newData.hasChildren(['preference']) && (newData.child('preference').val() === 'light' || newData.child('preference').val() === 'dark' || newData.child('preference').val() === 'system')"
+        },
+        "privacy": {
+          ".validate": "newData.hasChildren(['showProfile', 'anonymousNotes'])"
+        }
+      }
+    },
+
+    "connections": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && $uid === auth.uid",
+        "status": {
+          ".validate": "newData.val() === 'online' || newData.val() === 'offline'"
+        },
+        "lastActive": {
+          ".validate": "newData.isNumber() && newData.val() <= now"
+        }
+      }
+    },
+
+    "topics": {
+      "$topicId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (!data.exists() || data.child('createdBy').val() === auth.uid || data.child('partnerId').val() === auth.uid)",
+        "decisions": {
+          ".read": "auth != null",
+          ".write": "auth != null && (data.child('createdBy').val() === auth.uid || data.child('partnerId').val() === auth.uid)",
+          "$decisionId": {
+            ".validate": "newData.hasChildren(['createdBy', 'decision', 'timestamp'])"
+          }
+        },
+        "status": {
+          ".read": "auth != null",
+          ".write": "auth != null && (data.child('createdBy').val() === auth.uid || data.child('partnerId').val() === auth.uid)"
+        },
+        "participants": {
+          ".read": "auth != null",
+          ".write": "auth != null && (data.child('createdBy').val() === auth.uid || data.child('partnerId').val() === auth.uid)"
+        }
+      }
+    },
+
+    "typing": {
+      "$topicId": {
+        "$userId": {
+          ".read": "auth != null",
+          ".write": "auth != null && $userId === auth.uid",
+          "isTyping": {
+            ".validate": "newData.isBoolean()"
+          },
+          "timestamp": {
+            ".validate": "newData.isNumber() && newData.val() <= now"
+          }
+        }
+      }
+    },
+
+    "notifications": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "auth != null",
+        "$notificationId": {
+          ".validate": "newData.hasChildren(['timestamp'])"
+        }
+      }
+    },
+
+    "topicChats": {
+      "$topicId": {
+        ".read": "auth != null && ($topicId === 'direct_chat' && root.child('users').child(auth.uid).child('partnerId').exists() || root.child('topics').child($topicId).child('createdBy').val() === auth.uid || root.child('topics').child($topicId).child('partnerId').val() === auth.uid)",
+        ".write": "auth != null && ($topicId === 'direct_chat' && root.child('users').child(auth.uid).child('partnerId').exists() || root.child('topics').child($topicId).child('createdBy').val() === auth.uid || root.child('topics').child($topicId).child('partnerId').val() === auth.uid)",
+        "$messageId": {
+          ".read": "auth != null",
+          ".write": "auth != null && (!data.exists() || data.child('userId').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['userId', 'partnerId', 'timestamp']) && newData.child('userId').val() === auth.uid && newData.child('text').isString() && newData.child('text').val().length <= 5000"
+        }
+      }
+    },
+
+    "deletedMessages": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "$topicId": {
+          "$messageId": {
+            ".validate": "newData.isNumber() || newData.val() === null"
+          }
+        }
+      }
+    },
+
+    "presence": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && $uid === auth.uid",
+        "lastOnline": {
+          ".validate": "newData.isNumber() && newData.val() <= now"
+        },
+        "isOnline": {
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+
+    "calls": {
+      "$callId": {
+        ".read": "auth != null && (data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
+        ".write": "auth != null && (!data.exists() || data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['caller', 'recipient', 'type', 'status'])",
+        "callerCandidates": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "recipientCandidates": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+} 

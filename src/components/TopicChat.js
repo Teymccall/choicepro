@@ -1,0 +1,1819 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import {
+  PaperAirplaneIcon,
+  XMarkIcon,
+  UserCircleIcon,
+  ChatBubbleLeftRightIcon,
+  PhotoIcon,
+  DocumentIcon,
+  XCircleIcon,
+  CameraIcon,
+  ArrowUturnLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  FaceSmileIcon,
+  CheckIcon,
+  TrashIcon,
+  PencilIcon,
+  MicrophoneIcon,
+  EllipsisVerticalIcon,
+  ArrowLeftIcon,
+  PhoneIcon,
+  VideoCameraIcon
+} from '@heroicons/react/24/outline';
+import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'firebase/database';
+import { rtdb } from '../firebase/config';
+import { uploadMedia, validateFile } from '../utils/mediaUpload';
+import cld from '../config/cloudinary';
+import { AdvancedImage } from '@cloudinary/react';
+import { fill } from '@cloudinary/url-gen/actions/resize';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
+import ProfilePicture from './ProfilePicture';
+import { getRelationshipLevel, RELATIONSHIP_LEVELS } from '../utils/relationshipLevels';
+import ImageViewer from './ImageViewer';
+import Message from './Message';
+import { formatTime } from '../utils/dateUtils';
+import { toast } from 'react-hot-toast';
+import { Timestamp } from 'firebase/firestore';
+import { 
+  sanitizeInput, 
+  validateMessage, 
+  checkRateLimit, 
+  verifyPartnerRelationship,
+  logSecurityEvent 
+} from '../utils/chatSecurity';
+import {
+  initScreenshotDetection,
+  initContentProtection,
+  preventContextMenu,
+  preventTextSelection
+} from '../utils/screenshotProtection';
+import { useWebRTCContext } from '../context/WebRTCContext';
+
+// Define DisconnectionNotice component outside of TopicChat
+const DisconnectionNotice = () => (
+  <div className="absolute top-0 left-0 right-0 bg-yellow-500 text-white px-4 py-2 text-center">
+    Partner disconnected. Some features may be limited.
+  </div>
+);
+
+const TopicChat = ({ topic, onClose }) => {
+  const { user, partner, isOnline } = useAuth();
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState(() => {
+    // Initialize with saved draft if it exists
+    const savedDraft = localStorage.getItem(`messageDraft_${topic.id}_${user?.uid}`);
+    return savedDraft || '';
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [partnerTyping, setPartnerTyping] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [viewingImage, setViewingImage] = useState(null);
+  const [showMediaMenu, setShowMediaMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const typingTimeoutRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const mediaMenuRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const messageRefs = useRef({});
+  const inputRef = useRef(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const [partnerData, setPartnerData] = useState(partner);
+  const [messageCount, setMessageCount] = useState(0);
+  const [relationshipLevel, setRelationshipLevel] = useState({ level: 'Acquaintance', color: 'text-gray-600 dark:text-gray-400' });
+  const [nextLevelProgress, setNextLevelProgress] = useState(0);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const topicInputRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+  const optionsMenuRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
+  
+  // WebRTC context for call buttons (UI is in Layout)
+  const webRTC = useWebRTCContext();
+
+  const scrollToBottom = (force = false, instant = false) => {
+    if (force || shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ 
+        behavior: instant ? 'instant' : 'smooth',
+        block: 'end'
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.uid || !topic?.id) return;
+    
+    // Store the current chat ID in session storage
+    localStorage.setItem(`lastRead_${topic.id}_${user.uid}`, Date.now().toString());
+    localStorage.setItem(`lastChecked_${topic.id}_${user.uid}`, Date.now().toString());
+    sessionStorage.setItem('openTopicChatId', topic.id);
+    
+    // Dispatch custom event for FloatingNav
+    window.dispatchEvent(new Event('topicChatOpened'));
+    
+    // Only remove session storage if we're actually closing the chat
+    // not just during component cleanup on refresh
+    return () => {
+      if (!window.performance.getEntriesByType('navigation').some(entry => entry.type === 'reload')) {
+      sessionStorage.removeItem('openTopicChatId');
+        // Dispatch event when chat is closed too
+        window.dispatchEvent(new Event('topicChatOpened'));
+      }
+    };
+  }, [topic?.id, user?.uid]);
+
+  useEffect(() => {
+    if (!topic?.id || !user?.uid) return;
+
+    const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+    const deletedMessagesRef = ref(rtdb, `deletedMessages/${user.uid}/${topic.id}`);
+    
+    let deletedMessagesCache = {};
+    let messagesCache = {};
+    let deletedMessagesLoaded = false;
+    let messagesLoaded = false;
+    
+    // Function to process and filter messages
+    const processMessages = async () => {
+      // Don't process until both are loaded
+      if (!deletedMessagesLoaded || !messagesLoaded) {
+        console.log('⏳ Waiting for data to load...', { deletedMessagesLoaded, messagesLoaded });
+        return [];
+      }
+      
+      if (!messagesCache || Object.keys(messagesCache).length === 0) {
+        setMessages([]);
+        setLoading(false);
+        return [];
+      }
+
+      console.log('📨 Processing messages. Deleted cache:', deletedMessagesCache);
+
+      const messagesList = Object.entries(messagesCache)
+        .map(([id, message]) => ({
+          id,
+          ...message,
+          timestamp: message.timestamp || Date.now(),
+          isDeleted: !!deletedMessagesCache[id],
+          sent: true,
+          delivered: message.delivered || false,
+          read: message.read || false
+        }))
+        .filter(message => {
+          // Filter out messages deleted for everyone
+          if (message.deletedForEveryone) {
+            console.log('🚫 Filtering out (deleted for everyone):', message.id);
+            return false;
+          }
+          // Filter out messages deleted for me
+          if (deletedMessagesCache[message.id]) {
+            console.log('🚫 Filtering out (deleted for me):', message.id);
+            return false;
+          }
+          // Only show messages from user or partner
+          const shouldShow = message.userId === user.uid || (partner && message.userId === partner.uid);
+          if (!shouldShow) {
+            console.log('🚫 Filtering out (not from user/partner):', message.id);
+          }
+          return shouldShow;
+        })
+        .sort((a, b) => {
+          const timestampA = typeof a.timestamp === 'number' ? a.timestamp : a.timestamp?.toMillis?.() || 0;
+          const timestampB = typeof b.timestamp === 'number' ? b.timestamp : b.timestamp?.toMillis?.() || 0;
+          return timestampA - timestampB;
+        });
+
+      setMessages(prevMessages => {
+        // Determine if we should auto-scroll
+        const isInitialLoad = prevMessages.length === 0;
+        const hasNewMessages = messagesList.length > prevMessages.length;
+        
+        if (hasNewMessages && !isInitialLoad) {
+          // Get the last message
+          const lastMessage = messagesList[messagesList.length - 1];
+          const isOwnMessage = lastMessage?.userId === user.uid;
+          
+          // Auto-scroll if:
+          // 1. It's your own message (always scroll to your messages)
+          // 2. It's a partner message AND you're already near the bottom
+          if (isOwnMessage) {
+            console.log('📤 Your message - scrolling to bottom');
+            setTimeout(() => scrollToBottom(true, false), 100);
+          } else if (shouldAutoScrollRef.current) {
+            console.log('📥 Partner message - scrolling (near bottom)');
+            setTimeout(() => scrollToBottom(false, false), 100);
+          } else {
+            console.log('📥 Partner message - NOT scrolling (reading history)');
+          }
+        } else if (isInitialLoad && messagesList.length > 0) {
+          // Initial load - scroll to bottom instantly without animation
+          console.log('🔄 Initial load - scrolling to bottom');
+          // Use instant scroll and shorter delay for initial load
+          setTimeout(() => scrollToBottom(true, true), 50);
+        }
+        
+        return messagesList;
+      });
+      
+      // Handle read receipts
+      if (partner?.uid) {
+        const unreadMessages = messagesList
+          .filter(msg => msg.userId === partner.uid && !msg.read)
+          .map(msg => msg.id);
+
+        if (unreadMessages.length > 0) {
+          const updates = {};
+          unreadMessages.forEach(messageId => {
+            updates[`${messageId}/read`] = true;
+            updates[`${messageId}/readAt`] = serverTimestamp();
+          });
+          await update(chatRef, updates);
+        }
+      }
+      
+      return messagesList;
+    };
+    
+    // Listen to deleted messages changes - Load this FIRST
+    const deletedUnsubscribe = onValue(deletedMessagesRef, (snapshot) => {
+      deletedMessagesCache = snapshot.val() || {};
+      deletedMessagesLoaded = true;
+      console.log('🗑️ Deleted messages loaded:', deletedMessagesCache);
+      // Re-process messages when deleted list changes
+      processMessages();
+    });
+    
+    const unsubscribe = onValue(chatRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) {
+        messagesCache = {};
+        messagesLoaded = true;
+        setMessages([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        messagesCache = data;
+        messagesLoaded = true;
+        console.log('📨 Messages loaded from Firebase');
+        
+        // Process messages with current deleted cache
+        await processMessages();
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error processing messages:', error);
+        toast.error('Error loading messages. Please try again.');
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      deletedUnsubscribe();
+    };
+  }, [topic?.id, user?.uid, partner?.uid]);
+
+  // Add effect to mark messages as delivered when online
+  useEffect(() => {
+    if (!isOnline || !topic?.id || !partner?.uid || !user?.uid) return;
+
+    const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+    const query = ref(rtdb, `topicChats/${topic.id}`);
+    
+    const unsubscribe = onValue(query, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      // Find undelivered messages from partner
+      const undeliveredMessages = Object.entries(data)
+        .filter(([_, msg]) => msg.userId === partner.uid && !msg.delivered)
+        .map(([id]) => id);
+
+      if (undeliveredMessages.length > 0) {
+        const updates = {};
+        undeliveredMessages.forEach(messageId => {
+          updates[`${messageId}/delivered`] = true;
+          updates[`${messageId}/deliveredAt`] = serverTimestamp();
+        });
+        await update(chatRef, updates);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [isOnline, topic?.id, partner?.uid, user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid || !topic?.id) {
+      console.log('Cannot setup typing listener:', {
+        hasUser: !!user?.uid,
+        hasTopicId: !!topic?.id,
+        partnerId: partner?.uid
+      });
+      return;
+    }
+
+    const typingRef = ref(rtdb, `typing/${topic.id}`);
+    console.log('Setting up typing listener for topic:', {
+      topicId: topic.id,
+      path: `typing/${topic.id}`,
+      partnerId: partner?.uid
+    });
+    
+    const unsubscribe = onValue(typingRef, (snapshot) => {
+      const data = snapshot.val();
+      console.log('Typing status changed:', {
+        data,
+        partnerId: partner?.uid,
+        partnerTyping: data?.[partner?.uid]?.isTyping,
+        rawData: JSON.stringify(data)
+      });
+      
+      if (data && data[partner?.uid]) {
+        setPartnerTyping(data[partner.uid].isTyping);
+      } else {
+        setPartnerTyping(false);
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up typing listener');
+      unsubscribe();
+      if (user?.uid) {
+        update(ref(rtdb, `typing/${topic.id}/${user.uid}`), {
+          isTyping: false,
+          timestamp: serverTimestamp()
+        }).then(() => {
+          console.log('Successfully cleared typing status on cleanup');
+        }).catch((error) => {
+          console.error('Error clearing typing status:', error);
+        });
+      }
+    };
+  }, [user?.uid, topic?.id, partner?.uid]);
+
+  const updateTypingStatus = (typing) => {
+    if (!user?.uid || !topic?.id || !isOnline) {
+      console.log('Cannot update typing status:', { 
+        hasUser: !!user?.uid, 
+        hasTopicId: !!topic?.id, 
+        isOnline 
+      });
+      return;
+    }
+
+    console.log('Updating typing status:', {
+      typing,
+      userId: user.uid,
+      topicId: topic.id,
+      path: `typing/${topic.id}/${user.uid}`
+    });
+
+    update(ref(rtdb, `typing/${topic.id}/${user.uid}`), {
+      isTyping: typing,
+      timestamp: serverTimestamp()
+    }).then(() => {
+      console.log('Successfully updated typing status');
+    }).catch((error) => {
+      console.error('Error updating typing status:', error);
+    });
+  };
+
+  const handleMessageChange = (e) => {
+    const message = e.target.value;
+    setNewMessage(message);
+    
+    // Auto-resize textarea with smaller max height
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
+    
+    // Save draft to localStorage
+    localStorage.setItem(`messageDraft_${topic.id}_${user?.uid}`, message);
+    
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Only update typing status if there's actual content
+    if (message.trim()) {
+    console.log('Message changed, setting typing status to true');
+    updateTypingStatus(true);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      console.log('Typing timeout, setting typing status to false');
+      updateTypingStatus(false);
+      }, 3000); // Increased to 3 seconds for better UX
+    } else {
+      // If message is empty, clear typing status immediately
+      updateTypingStatus(false);
+    }
+  };
+
+  const handleMediaClick = (e) => {
+    // Prevent click from bubbling to document
+    e.stopPropagation();
+    setShowMediaMenu(!showMediaMenu);
+  };
+
+  const handleCameraClick = async () => {
+    try {
+      // Instead of creating a custom UI, we'll use the phone's native camera
+      if (cameraInputRef.current) {
+        cameraInputRef.current.click();
+      }
+    } catch (error) {
+      console.error('Camera access error:', error);
+      toast.error('Failed to access camera. Please try again.');
+    }
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setError(null);
+
+      // Validate file first
+      await validateFile(file);
+
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result);
+        setSelectedFile(file);
+      };
+      reader.readAsDataURL(file);
+
+      // Optimize image if it's too large
+      if (file.size > 1024 * 1024) { // If larger than 1MB
+        const optimizedImage = await optimizeImage(file);
+        if (optimizedImage) {
+          setSelectedFile(optimizedImage);
+          const optimizedReader = new FileReader();
+          optimizedReader.onloadend = () => setPreviewUrl(optimizedReader.result);
+          optimizedReader.readAsDataURL(optimizedImage);
+        }
+      }
+      
+      // Close media menu
+      setShowMediaMenu(false);
+    } catch (error) {
+      console.error('File validation error:', error);
+      setError(error.message);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      toast.error(error.message);
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Add new function to optimize images
+  const optimizeImage = async (file) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Calculate new dimensions while maintaining aspect ratio
+        const MAX_WIDTH = 1280;
+        const MAX_HEIGHT = 1280;
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convert to blob with reduced quality
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              const optimizedFile = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(optimizedFile);
+            } else {
+              resolve(file); // Fall back to original file if optimization fails
+            }
+          },
+          'image/jpeg',
+          0.8 // 80% quality
+        );
+      };
+      
+      img.onerror = () => resolve(file); // Fall back to original file on error
+      
+      const reader = new FileReader();
+      reader.onload = (e) => img.src = e.target.result;
+      reader.onerror = () => resolve(file);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleReply = (message) => {
+    setReplyingTo(message);
+  };
+
+  const startEditing = (message) => {
+    setEditingMessage(message);
+    setNewMessage(message.text);
+    setShowMediaMenu(false);
+    setShowEmojiPicker(false);
+    if (inputRef.current) {
+      inputRef.current.focus();
+      // Adjust height if needed
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
+    }
+  };
+
+  const getPairingId = (uid1, uid2) => {
+    return [uid1, uid2].sort().join('_');
+  };
+
+  const handleSendMessage = async (e) => {
+    e?.preventDefault();
+    const trimmedMessage = newMessage.trim();
+    
+    if (editingMessage) {
+      // Handle editing
+      if (trimmedMessage !== editingMessage.text) {
+        await handleEditMessage(editingMessage.id, trimmedMessage);
+      }
+      cancelEditing();
+    } else {
+      // Handle new message
+      if ((!trimmedMessage && !selectedFile) || uploadingMedia) return;
+
+      try {
+        // ============ SECURITY CHECKS ============
+        
+        // 1. Verify partner relationship
+        if (!verifyPartnerRelationship(user.uid, partner.uid, partner)) {
+          logSecurityEvent('PARTNER_VERIFICATION_FAILED', { 
+            userId: user.uid, 
+            partnerId: partner.uid 
+          });
+          toast.error('Security check failed. Please try again.');
+          return;
+        }
+
+        // 2. Validate message content
+        const validation = validateMessage(trimmedMessage);
+        if (!validation.valid && trimmedMessage) {
+          toast.error(validation.error);
+          return;
+        }
+
+        // 3. Check rate limiting
+        const rateCheck = checkRateLimit(user.uid, trimmedMessage);
+        if (!rateCheck.allowed) {
+          toast.error(rateCheck.reason);
+          return;
+        }
+
+        // 4. Sanitize input
+        const messageToSend = sanitizeInput(trimmedMessage);
+        
+        // ============ END SECURITY CHECKS ============
+        
+        // Clear input and states immediately for better UX
+        setNewMessage('');
+        const replyingToRef = replyingTo;
+        setReplyingTo(null);
+        localStorage.removeItem(`messageDraft_${topic.id}_${user?.uid}`);
+        
+        // Reset textarea height
+        if (inputRef.current) {
+          inputRef.current.style.height = '42px';
+        }
+
+        // Get the latest user data to ensure we have the current photo URL
+        const userRef = ref(rtdb, `users/${user.uid}`);
+        const userSnapshot = await get(userRef);
+        const userData = userSnapshot.val() || {};
+        const currentPhotoURL = userData.photoURL || user.photoURL;
+
+        const messageData = {
+          text: messageToSend || '', // Sanitized text
+          userId: user.uid,
+          partnerId: partner.uid,
+          userName: user.displayName || 'Anonymous',
+          userPhotoURL: currentPhotoURL, // Use the latest photo URL
+          userDisplayName: user.displayName || 'Anonymous',
+          timestamp: serverTimestamp(),
+          sent: true,
+          delivered: false,
+          read: false,
+          edited: false
+        };
+
+        if (replyingToRef) {
+          // Only include necessary properties in replyTo
+          messageData.replyTo = {
+            id: replyingToRef.id,
+            text: replyingToRef.text || '',
+            userId: replyingToRef.userId,
+            userDisplayName: replyingToRef.userDisplayName,
+            userPhotoURL: replyingToRef.userPhotoURL // Include photo URL in reply reference
+          };
+          
+          // Only add media if it exists
+          if (replyingToRef.media) {
+            messageData.replyTo.media = {
+              type: replyingToRef.media.type,
+              url: replyingToRef.media.url
+            };
+          }
+        }
+
+        let mediaData = null;
+        if (selectedFile) {
+          setUploadingMedia(true);
+          mediaData = await uploadMedia(selectedFile);
+          setSelectedFile(null);
+          setPreviewUrl(null);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }
+
+        const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+        const messageDataWithMedia = {
+          ...messageData,
+          ...(mediaData && {
+            media: {
+              url: mediaData.url,
+              type: selectedFile.type,
+              publicId: mediaData.publicId,
+              resourceType: mediaData.resourceType,
+              format: mediaData.format
+            }
+          })
+        };
+
+        const newMessageRef = await push(chatRef, messageDataWithMedia);
+
+        if (isOnline) {
+          update(ref(rtdb, `topicChats/${topic.id}/${newMessageRef.key}`), {
+            delivered: true,
+            deliveredAt: serverTimestamp()
+          });
+        }
+
+        // Update message count with consistent pairing ID
+        const pairingId = getPairingId(user.uid, partner.uid);
+        const messageCountRef = ref(rtdb, `messageCount/${pairingId}`);
+        const countSnapshot = await get(messageCountRef);
+        const currentCount = countSnapshot.val() || 0;
+        await set(messageCountRef, currentCount + 1);
+
+        setUploadingMedia(false);
+        
+      } catch (error) {
+        console.error('Error sending message:', error);
+        toast.error('Failed to send message. Please try again.');
+        setUploadingMedia(false);
+      }
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingMessage(null);
+    setNewMessage('');
+    if (inputRef.current) {
+      inputRef.current.style.height = '42px';
+    }
+  };
+
+  const handleDeleteMessage = async (messageId, deleteForEveryone) => {
+    console.log('🗑️ DELETE MESSAGE CALLED:', { messageId, deleteForEveryone, userId: user.uid, topicId: topic.id });
+    
+    try {
+      const loadingToast = toast.loading('Deleting message...');
+      
+      const chatRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
+      const messageSnapshot = await get(chatRef);
+      
+      if (!messageSnapshot.exists()) {
+        console.error('❌ Message not found in Firebase');
+        toast.dismiss(loadingToast);
+        toast.error('Message not found');
+        return;
+      }
+
+      const messageData = messageSnapshot.val();
+      console.log('📄 Message data:', messageData);
+      
+      if (deleteForEveryone && messageData.userId !== user.uid) {
+        console.error('❌ Cannot delete for everyone - not your message');
+        toast.dismiss(loadingToast);
+        toast.error('You can only delete your own messages for everyone');
+        return;
+      }
+      
+      if (deleteForEveryone) {
+        console.log('🌍 Deleting for EVERYONE...');
+        await update(chatRef, {
+          deletedForEveryone: true,
+          deletedBy: user.uid,
+          deletedAt: serverTimestamp()
+        });
+        console.log('✅ Updated message with deletedForEveryone flag');
+        
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.id === messageId 
+              ? { ...msg, deletedForEveryone: true, deletedBy: user.uid } 
+              : msg
+          )
+        );
+        
+        toast.dismiss(loadingToast);
+        toast.success('Message deleted for everyone');
+      } else {
+        console.log('👤 Deleting for ME only...');
+        const userDeletedRef = ref(rtdb, `deletedMessages/${user.uid}/${topic.id}/${messageId}`);
+        const deletePath = `deletedMessages/${user.uid}/${topic.id}/${messageId}`;
+        console.log('📍 Saving to path:', deletePath);
+        
+        await set(userDeletedRef, serverTimestamp());
+        console.log('✅ Saved to deletedMessages');
+        
+        // Verify it was saved
+        const verifySnapshot = await get(userDeletedRef);
+        console.log('🔍 Verification - exists?', verifySnapshot.exists(), 'value:', verifySnapshot.val());
+        
+        // Message will be filtered out automatically by the listener
+        toast.dismiss(loadingToast);
+        toast.success('Message deleted for you');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting message:', error);
+      toast.error('Failed to delete message. Please try again.');
+    }
+  };
+
+  const handleEditMessage = async (messageId, newText) => {
+    try {
+      const loadingToast = toast.loading('Saving changes...');
+      
+      const messageRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
+      await update(messageRef, {
+        text: newText,
+        edited: true,
+        editedAt: serverTimestamp()
+      });
+      
+      setMessages(prevMessages => 
+        prevMessages.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, text: newText, edited: true } 
+            : msg
+        )
+      );
+      
+      toast.dismiss(loadingToast);
+      toast.success('Message updated successfully');
+    } catch (error) {
+      console.error('Error editing message:', error);
+      toast.error('Failed to edit message. Please try again.');
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Check for supported MIME types
+      const mimeType = 'audio/webm;codecs=opus';
+      const options = { mimeType };
+      
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          setUploadingMedia(true);
+          
+          // Create audio blob
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          const file = new File([audioBlob], 'voice-message.webm', { type: mimeType });
+
+          // Upload to Cloudinary
+          const mediaData = await uploadMedia(file);
+          
+          // Create message with audio
+          const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+          const messageData = {
+            userId: user.uid,
+            partnerId: partner.uid,
+            userName: user.displayName || 'User',
+            timestamp: serverTimestamp(),
+            delivered: false,
+            read: false,
+            media: {
+              url: mediaData.url,
+              type: 'audio/webm',
+              name: 'Voice message',
+              publicId: mediaData.publicId,
+              resourceType: 'video', // Cloudinary treats audio as video resource
+              format: 'webm',
+              duration: recordingDuration
+            }
+          };
+
+          // Send message
+          const newMessageRef = await push(chatRef, messageData);
+
+          if (isOnline) {
+            update(ref(rtdb, `topicChats/${topic.id}/${newMessageRef.key}`), {
+              delivered: true
+            });
+          }
+        } catch (error) {
+          console.error('Error sending voice message:', error);
+          toast.error('Failed to send voice message. Please try again.');
+          setTimeout(() => toast.dismiss(), 3000);
+        } finally {
+          setUploadingMedia(false);
+          // Clean up
+        stream.getTracks().forEach(track => track.stop());
+          setIsRecording(false);
+          setRecordingDuration(0);
+          clearInterval(recordingTimerRef.current);
+        }
+      };
+
+      // Start recording with smaller timeslices for better data collection
+      mediaRecorder.start(100); // Record in 100ms chunks
+      setIsRecording(true);
+      
+      // Start duration timer
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      toast.error('Could not access microphone. Please check your permissions.');
+      setTimeout(() => toast.dismiss(), 3000);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      clearInterval(recordingTimerRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      clearInterval(recordingTimerRef.current);
+      setIsRecording(false);
+      setRecordingDuration(0);
+    }
+  };
+
+  // Add cleanup for recording when component unmounts
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, [isRecording]);
+
+  // ============ SCREENSHOT PROTECTION ============
+  useEffect(() => {
+    if (!user?.uid || !partner?.uid || !topic?.id) return;
+
+    // Initialize protection layers (NO WARNING TOAST)
+    const cleanupScreenshot = initScreenshotDetection(user.uid, partner.uid, topic.id);
+    const cleanupContentProtection = initContentProtection();
+    const cleanupContextMenu = preventContextMenu();
+    const cleanupTextSelection = preventTextSelection();
+
+    // Cleanup all protections on unmount
+    return () => {
+      if (cleanupScreenshot) cleanupScreenshot();
+      if (cleanupContentProtection) cleanupContentProtection();
+      if (cleanupContextMenu) cleanupContextMenu();
+      if (cleanupTextSelection) cleanupTextSelection();
+    };
+  }, [user?.uid, partner?.uid, topic?.id]);
+  // ============ END SCREENSHOT PROTECTION ============
+
+  // Add this useEffect for mobile viewport handling
+  useEffect(() => {
+    const setVH = () => {
+      // First we get the viewport height and we multiple it by 1% to get a value for a vh unit
+      const vh = window.innerHeight * 0.01;
+      // Then we set the value in the --vh custom property to the root of the document
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+
+    // Initial set
+    setVH();
+
+    // Add event listeners
+    window.addEventListener('resize', setVH);
+    window.addEventListener('orientationchange', setVH);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', setVH);
+      window.removeEventListener('orientationchange', setVH);
+    };
+  }, []);
+
+  // Add click outside handler for media menu
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (mediaMenuRef.current && !mediaMenuRef.current.contains(event.target) && 
+          !event.target.closest('button[data-media-button="true"]')) {
+        setShowMediaMenu(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Update the partner data sync effect
+  useEffect(() => {
+    if (!partner?.uid) return;
+
+    // Set up real-time listener for partner's profile
+    const partnerRef = ref(rtdb, `users/${partner.uid}`);
+    const unsubscribe = onValue(partnerRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        // Update local partner data state with all fields
+        setPartnerData(current => ({
+          ...current,
+          ...data,
+          photoURL: data.photoURL || current?.photoURL,
+          displayName: data.displayName || current?.displayName,
+          lastSeen: data.lastSeen,
+          isOnline: data.isOnline,
+          status: data.status
+        }));
+
+        // Update existing messages with new photo URL if needed
+        setMessages(prevMessages => 
+          prevMessages.map(msg => {
+            if (msg.userId === partner.uid) {
+              return {
+                ...msg,
+                userPhotoURL: data.photoURL || msg.userPhotoURL
+              };
+            }
+            if (msg.replyTo?.userId === partner.uid) {
+              return {
+                ...msg,
+                replyTo: {
+                  ...msg.replyTo,
+                  userPhotoURL: data.photoURL || msg.replyTo.userPhotoURL
+                }
+              };
+            }
+            return msg;
+          })
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, [partner?.uid]);
+
+  // Incoming calls now handled globally in Layout component
+
+  // Modify the message count effect
+  useEffect(() => {
+    if (!topic?.id) return;
+    
+    const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+    const unsubscribe = onValue(chatRef, (snapshot) => {
+      const data = snapshot.val();
+      const count = data ? Object.keys(data).length : 0;
+      setMessageCount(count);
+    });
+
+    return () => unsubscribe();
+  }, [topic?.id]);
+
+  // Add this effect to listen for topic deletion
+  useEffect(() => {
+    if (!topic?.id) return;
+    
+    // Skip deletion check for direct chat
+    if (topic.isDirectChat) return;
+
+    // Listen for topic deletion
+    const topicRef = ref(rtdb, `topics/${topic.id}`);
+    const unsubscribe = onValue(topicRef, (snapshot) => {
+      if (!snapshot.exists() && !loading) {
+        // Topic was deleted, close the chat
+        onClose();
+        // Optionally show a message
+        setError('This topic has been deleted');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [topic?.id, topic?.isDirectChat, loading, onClose]);
+
+  const handleDeleteTopic = async () => {
+    if (!isOnline || !user?.uid) {
+      toast.error('You must be online to delete this topic');
+      return;
+    }
+
+    try {
+      // Show loading toast
+      const loadingToast = toast.loading('Deleting topic...');
+
+      // Delete the topic first
+      const topicRef = ref(rtdb, `topics/${topic.id}`);
+      await remove(topicRef);
+
+      // Then delete associated chat messages
+      const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+      await remove(chatRef);
+
+      // Delete any associated deleted messages records
+      const deletedMessagesRef = ref(rtdb, `deletedMessages/${user.uid}/${topic.id}`);
+      await remove(deletedMessagesRef);
+      
+      const partnerDeletedMessagesRef = ref(rtdb, `deletedMessages/${partner.uid}/${topic.id}`);
+      await remove(partnerDeletedMessagesRef);
+
+      // Delete any typing indicators
+      const typingRef = ref(rtdb, `typing/${topic.id}`);
+      await remove(typingRef);
+
+      // Dismiss loading toast and show success
+      toast.dismiss(loadingToast);
+      toast.success('Topic deleted successfully');
+
+      // Close the chat after deletion
+      onClose();
+    } catch (error) {
+      console.error('Error deleting topic:', error);
+      toast.error('Failed to delete topic. Please try again.');
+    }
+  };
+
+  const handleEditTopic = async (newQuestion) => {
+    if (!isOnline || !user?.uid) {
+      toast.error('You must be online to edit this topic');
+      return;
+    }
+
+    if (!newQuestion?.trim()) {
+      toast.error('Topic question cannot be empty');
+      return;
+    }
+
+    try {
+      const loadingToast = toast.loading('Saving changes...');
+      
+      const topicRef = ref(rtdb, `topics/${topic.id}`);
+      await update(topicRef, {
+        question: newQuestion.trim(),
+        updatedAt: serverTimestamp()
+      });
+      
+      toast.dismiss(loadingToast);
+      toast.success('Topic updated successfully');
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error editing topic:', error);
+      toast.error('Failed to edit topic. Please try again.');
+    }
+  };
+
+  // Add a new function to handle the save button click
+  const handleSaveEdit = () => {
+    const newQuestion = topicInputRef.current?.value;
+    if (newQuestion) {
+      handleEditTopic(newQuestion);
+    } else {
+      toast.error('Topic question cannot be empty');
+    }
+  };
+
+  // Add click outside handler for emoji picker
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (emojiPickerRef.current && 
+          !emojiPickerRef.current.contains(event.target) && 
+          !event.target.closest('button')?.contains(event.target.closest('.emoji-button'))) {
+        setShowEmojiPicker(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Add new useEffect for click outside handling
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target)) {
+        setShowOptionsMenu(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Add scroll handler to detect when user manually scrolls
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // If user is within 100px of bottom, enable auto-scroll
+      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      shouldAutoScrollRef.current = isNearBottom;
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  if (loading) {
+    return <div className="text-center py-4">Loading messages...</div>;
+  }
+
+  return (
+    <div className="relative h-screen w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black overflow-hidden">
+      {/* Fixed Chat Header - Glassmorphism */}
+      <div className="flex-shrink-0 fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg">
+        {/* Top Row - Partner Info */}
+        <div className="flex items-center px-4 py-3">
+          <button
+            onClick={onClose}
+            className="md:hidden p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full mr-2 transition-all"
+          >
+            <ArrowLeftIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+          </button>
+          
+          <div className="flex items-center flex-1 min-w-0">
+            <div className="flex-shrink-0 mr-3">
+              <div className="relative">
+                <ProfilePicture 
+                  userId={partner?.uid} 
+                  photoURL={partner?.photoURL} 
+                  displayName={partner?.displayName}
+                  size="md" 
+                />
+                {isOnline && (
+                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
+                )}
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-bold text-gray-900 dark:text-white truncate">
+                {partner ? partner.displayName : 'Loading...'}
+              </h2>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {isOnline ? 'Online' : 'Offline'}
+                </p>
+                <span className="text-xs text-gray-400">•</span>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {messageCount} {messageCount === 1 ? 'message' : 'messages'}
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Call Buttons */}
+          <div className="flex items-center space-x-2">
+            {/* Audio Call */}
+            <button
+              onClick={() => webRTC.requestCall('audio')}
+              className="p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full transition-all group"
+              title="Audio Call"
+            >
+              <PhoneIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400" />
+            </button>
+
+            {/* Video Call */}
+            <button
+              onClick={() => webRTC.requestCall('video')}
+              className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full transition-all group"
+              title="Video Call"
+            >
+              <VideoCameraIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+            </button>
+
+            {/* Options Menu */}
+            <button
+              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+              className="p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
+            >
+              <EllipsisVerticalIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
+            </button>
+          </div>
+
+          {/* Options Menu - Glassmorphism */}
+          {showOptionsMenu && (
+            <div 
+              ref={optionsMenuRef}
+              className="absolute right-4 top-14 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-2xl shadow-2xl py-2 min-w-[200px] z-50 border border-gray-200/50 dark:border-gray-700/50"
+            >
+              <button
+                onClick={() => {
+                  setIsEditing(true);
+                  setShowOptionsMenu(false);
+                }}
+                className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 flex items-center transition-all"
+              >
+                <PencilIcon className="h-4 w-4 mr-3" />
+                Edit Topic
+              </button>
+              <button
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to delete this topic? This action cannot be undone.')) {
+                    handleDeleteTopic();
+                  }
+                  setShowOptionsMenu(false);
+                }}
+                className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50/50 dark:hover:bg-red-900/20 flex items-center transition-all"
+              >
+                <TrashIcon className="h-4 w-4 mr-3" />
+                Delete Topic
+              </button>
+            </div>
+          )}
+        </div>
+        
+        {/* Topic Title Banner - Glassmorphism */}
+        <div className="px-4 py-3 bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 backdrop-blur-sm border-t border-gray-200/30 dark:border-gray-700/30">
+          <div className="flex items-center gap-2">
+            <ChatBubbleLeftRightIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+            <p className="text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
+              {topic?.question || 'Loading topic...'}
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Messages Container - WhatsApp/Telegram Style */}
+      <div 
+        ref={messagesContainerRef}
+        className="chat-messages-container screenshot-protected absolute left-0 right-0 overflow-y-auto bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
+        style={{ 
+          top: '130px',
+          bottom: '70px', // Just input footer, no bottom nav
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
+          backgroundAttachment: "fixed",
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
+        }}
+      >
+        <div className="px-4 py-4 space-y-2 max-w-3xl mx-auto w-full">
+          {messages.map((message) => (
+            <Message
+              key={message.id}
+              message={message}
+              isOwnMessage={message.userId === user.uid}
+              user={user}
+              partner={partner}
+              topicId={topic.id}
+              onReply={handleReply}
+              onImageClick={setViewingImage}
+              messageRefs={messageRefs}
+              onDelete={handleDeleteMessage}
+              onEdit={handleEditMessage}
+              onStartEdit={startEditing}
+            />
+          ))}
+          {partnerTyping && (
+            <div className="flex items-center space-x-2 text-gray-500 pl-2">
+              <div className="typing-indicator">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <span className="text-sm">{partnerData?.displayName} is typing...</span>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+      </div>
+
+      {/* Fixed Input Container */}
+      <div className="bg-white dark:bg-gray-800 fixed bottom-0 left-0 right-0 z-50 shadow-lg">
+        {(replyingTo || selectedFile) && (
+          <div className="px-4 py-2 max-w-3xl mx-auto space-y-2 border-t border-gray-200 dark:border-gray-700">
+            {replyingTo && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 flex items-start">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Replying to {replyingTo.userId === user.uid ? 'yourself' : partnerData?.displayName}
+                  </p>
+                  <p className="text-sm truncate text-gray-700 dark:text-gray-300">
+                    {replyingTo.text || (replyingTo.media ? 'Media message' : '')}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setReplyingTo(null)} 
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
+                >
+                  <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+            )}
+            
+            {selectedFile && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+                <div className="flex items-center space-x-3">
+                  <div className="relative w-14 h-14 flex-shrink-0 rounded-md overflow-hidden">
+                    <img
+                      src={previewUrl}
+                      alt="Selected"
+                      className="w-full h-full object-cover"
+                    />
+                    {uploadingMedia && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {uploadingMedia ? 'Uploading...' : 'Photo'}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {uploadingMedia ? 'Please wait...' : 'Ready to send'}
+                    </p>
+                  </div>
+                  {!uploadingMedia && (
+                    <button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}
+                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
+                    >
+                      <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Message Input Area - Glassmorphism */}
+        <div className="px-4 py-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-t border-gray-200/50 dark:border-gray-700/50">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end gap-2">
+              {/* Emoji Button */}
+              <button
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="flex-shrink-0 p-3 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-2xl transition-all emoji-button"
+              >
+                <FaceSmileIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+              </button>
+              
+              {/* Input Container */}
+              <div className="flex-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-3xl border-2 border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md transition-all">
+                <textarea
+                  ref={inputRef}
+                  value={newMessage}
+                  onChange={handleMessageChange}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                    if (e.key === 'Escape') {
+                      if (editingMessage) {
+                        cancelEditing();
+                      } else if (replyingTo) {
+                        setReplyingTo(null);
+                      }
+                    }
+                  }}
+                  placeholder={editingMessage ? '✏️ Edit message...' : '💬 Type a message...'}
+                  className="w-full bg-transparent border-none focus:ring-0 dark:text-white resize-none py-3 px-4 max-h-32 placeholder-gray-400 dark:placeholder-gray-500 text-base"
+                  style={{ minHeight: '48px' }}
+                  rows={1}
+                />
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {/* Media Button */}
+                <div className="relative">
+                  <button
+                    onClick={handleMediaClick}
+                    className="flex-shrink-0 p-3 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-2xl transition-all"
+                    data-media-button="true"
+                  >
+                    <PhotoIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                  </button>
+                {showMediaMenu && (
+                  <>
+                    <div 
+                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-200"
+                      onClick={() => setShowMediaMenu(false)}
+                    />
+                    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-t-2xl shadow-xl z-50 border-t border-gray-200/50 dark:border-gray-700/50">
+                      {/* Handle bar */}
+                      <div className="flex justify-center pt-2">
+                        <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
+                      </div>
+
+                      {/* Header */}
+                      <div className="flex items-center justify-between px-4 pt-3 pb-4">
+                        <h3 className="text-base font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
+                          Share Media
+                        </h3>
+                        <button 
+                          onClick={() => setShowMediaMenu(false)}
+                          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                        >
+                          <XMarkIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                        </button>
+                      </div>
+                      
+                      {/* Compact Grid */}
+                      <div className="grid grid-cols-2 gap-2 px-4 pb-3">
+                        {/* Gallery */}
+                        <button
+                          onClick={() => {
+                            fileInputRef.current?.click();
+                            setShowMediaMenu(false);
+                          }}
+                          className="flex flex-col items-center py-3 px-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100/80 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200/50 dark:border-blue-700/30 hover:scale-105 active:scale-95 transition-transform"
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                            <PhotoIcon className="h-5 w-5 text-white" strokeWidth={2} />
+                          </div>
+                          <span className="mt-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300">Gallery</span>
+                          <span className="text-[9px] text-gray-500 dark:text-gray-500">Choose photo</span>
+                        </button>
+
+                        {/* Camera */}
+                        <button
+                          onClick={() => {
+                            handleCameraClick();
+                            setShowMediaMenu(false);
+                          }}
+                          className="flex flex-col items-center py-3 px-2 rounded-lg bg-gradient-to-br from-purple-50 to-purple-100/80 dark:from-purple-900/20 dark:to-purple-800/20 border border-purple-200/50 dark:border-purple-700/30 hover:scale-105 active:scale-95 transition-transform"
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-sm">
+                            <CameraIcon className="h-5 w-5 text-white" strokeWidth={2} />
+                          </div>
+                          <span className="mt-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300">Camera</span>
+                          <span className="text-[9px] text-gray-500 dark:text-gray-500">Take photo</span>
+                        </button>
+                      </div>
+
+                      {/* Cancel */}
+                      <button
+                        onClick={() => setShowMediaMenu(false)}
+                        className="w-full py-3 text-sm font-medium text-red-600 dark:text-red-400 border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+                </div>
+                
+                {/* Send Button */}
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!newMessage.trim() && !selectedFile}
+                  className={`flex-shrink-0 p-3 rounded-2xl transition-all duration-200 ${
+                    (!newMessage.trim() && !selectedFile)
+                      ? 'bg-gray-200/50 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-xl hover:scale-105'
+                  }`}
+                >
+                  <PaperAirplaneIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={cameraInputRef}
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
+      {/* Image Viewer Modal */}
+      {viewingImage && (
+        <ImageViewer 
+          image={viewingImage} 
+          onClose={() => setViewingImage(null)} 
+        />
+      )}
+
+      {/* Emoji Picker - Mobile Optimized with Glassmorphism */}
+      {showEmojiPicker && (
+        <div ref={emojiPickerRef} className="fixed bottom-0 left-0 right-0 z-50 animate-slide-up">
+          <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-2xl rounded-t-3xl shadow-2xl border-t-2 border-gray-200/50 dark:border-gray-700/50 pb-safe">
+            {/* Header with Close Button */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/50 dark:border-gray-700/50">
+              <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
+                Choose Emoji
+              </h3>
+              <button
+                onClick={() => setShowEmojiPicker(false)}
+                className="p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
+              >
+                <XMarkIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Emoji Picker */}
+            <div className="overflow-hidden">
+              <EmojiPicker
+                onEmojiClick={(emojiData) => {
+                  setNewMessage((prev) => prev + emojiData.emoji);
+                  setShowEmojiPicker(false);
+                }}
+                autoFocusSearch={false}
+                theme={document.documentElement.classList.contains('dark') ? Theme.DARK : Theme.LIGHT}
+                width="100%"
+                height="450px"
+                searchPlaceHolder="Search emojis..."
+                previewConfig={{
+                  showPreview: false
+                }}
+                emojiStyle="native"
+                lazyLoadEmojis={true}
+                skinTonesDisabled={false}
+                searchDisabled={false}
+                categories={[
+                  {
+                    name: 'Smileys & People',
+                    category: 'smileys_people'
+                  },
+                  {
+                    name: 'Animals & Nature',
+                    category: 'animals_nature'
+                  },
+                  {
+                    name: 'Food & Drink',
+                    category: 'food_drink'
+                  },
+                  {
+                    name: 'Travel & Places',
+                    category: 'travel_places'
+                  },
+                  {
+                    name: 'Activities',
+                    category: 'activities'
+                  },
+                  {
+                    name: 'Objects',
+                    category: 'objects'
+                  },
+                  {
+                    name: 'Symbols',
+                    category: 'symbols'
+                  },
+                  {
+                    name: 'Flags',
+                    category: 'flags'
+                  }
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Topic Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-4 max-w-lg w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Edit Topic</h3>
+              <button 
+                onClick={() => setIsEditing(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+              >
+                <XMarkIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+            <input
+              ref={topicInputRef}
+              type="text"
+              defaultValue={topic?.question || ''}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-white"
+              placeholder="Enter topic question..."
+            />
+            <div className="flex justify-end space-x-2 mt-4">
+              <button
+                onClick={() => setIsEditing(false)}
+                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="px-4 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>
+        {`
+        /* Custom scrollbar for messages - professional and subtle */
+        div[class*="overflow-y-auto"]::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        div[class*="overflow-y-auto"]::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        div[class*="overflow-y-auto"]::-webkit-scrollbar-thumb {
+          background: rgba(156, 163, 175, 0.3);
+          border-radius: 3px;
+          transition: background 0.2s;
+        }
+
+        div[class*="overflow-y-auto"]::-webkit-scrollbar-thumb:hover {
+          background: rgba(156, 163, 175, 0.5);
+        }
+
+        /* Hide scrollbar when not scrolling (optional) */
+        div[class*="overflow-y-auto"] {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+        }
+
+        .typing-indicator {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        }
+
+        .typing-indicator span {
+          width: 4px;
+          height: 4px;
+          background-color: #6B7280;
+          border-radius: 50%;
+          animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+          animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+          animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+          0%, 60%, 100% {
+            transform: translateY(0);
+          }
+          30% {
+            transform: translateY(-4px);
+          }
+        }
+
+        /* Mobile optimizations */
+        @media (max-width: 640px) {
+          .h-screen {
+            height: 100vh;
+            height: calc(var(--vh, 1vh) * 100);
+          }
+          
+          textarea {
+            font-size: 16px !important;
+          }
+        }
+
+        .online-dot {
+          position: relative;
+        }
+
+        .online-dot::before {
+          content: '';
+          position: absolute;
+          top: -1px;
+          left: -1px;
+          right: -1px;
+          bottom: -1px;
+          background: rgba(34, 197, 94, 0.4);
+          border-radius: 50%;
+          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 0.5;
+            transform: scale(1.5);
+          }
+        }
+
+        @keyframes flash {
+          0% { opacity: 0; }
+          50% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+        
+        .animate-flash {
+          animation: flash 750ms ease-out forwards;
+        }
+        `}
+      </style>
+
+      {/* Call UI now handled globally in Layout component */}
+    </div>
+  );
+};
+
+export default TopicChat; 
+
