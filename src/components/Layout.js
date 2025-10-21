@@ -186,6 +186,7 @@ const Layout = ({ children }) => {
           isVideoEnabled={webRTC.isVideoEnabled}
           isSpeakerOn={webRTC.isSpeakerOn}
           callDuration={webRTC.callDuration}
+          connectionQuality={webRTC.connectionQuality}
           partnerName={partner?.displayName}
           partnerPhotoURL={partner?.photoURL}
           onEndCall={webRTC.endCall}

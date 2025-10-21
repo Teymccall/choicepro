@@ -8,12 +8,113 @@ import {
   TrashIcon,
   ClockIcon,
   EllipsisVerticalIcon,
-  DocumentIcon
+  DocumentIcon,
+  PlayIcon,
+  PauseIcon
 } from '@heroicons/react/24/outline';
 import { CheckIcon as CheckIconSolid } from '@heroicons/react/24/solid';
 import { formatTime } from '../utils/dateUtils';
 import { ref, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
+
+// Voice Note Player Component
+const VoiceNotePlayer = ({ audioUrl, duration, isOwnMessage }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const audioRef = useRef(null);
+  
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    const updateTime = () => setCurrentTime(audio.currentTime);
+    const handleEnded = () => setIsPlaying(false);
+    
+    audio.addEventListener('timeupdate', updateTime);
+    audio.addEventListener('ended', handleEnded);
+    
+    return () => {
+      audio.removeEventListener('timeupdate', updateTime);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, []);
+  
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+  
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  
+  return (
+    <div className="flex items-center gap-2 min-w-[200px] py-1">
+      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      
+      {/* Play/Pause Button */}
+      <button
+        onClick={togglePlay}
+        className={`flex-shrink-0 p-2 rounded-full transition-colors ${
+          isOwnMessage
+            ? 'bg-white/20 hover:bg-white/30'
+            : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600'
+        }`}
+      >
+        {isPlaying ? (
+          <PauseIcon className="h-4 w-4" />
+        ) : (
+          <PlayIcon className="h-4 w-4" />
+        )}
+      </button>
+      
+      {/* Waveform Progress */}
+      <div className="flex-1 h-8 flex items-center gap-0.5">
+        {[...Array(20)].map((_, i) => {
+          const barProgress = (i / 20) * 100;
+          const isActive = progress >= barProgress;
+          const height = Math.random() * 16 + 8; // Random heights between 8-24px
+          
+          return (
+            <div
+              key={i}
+              className={`w-1 rounded-full transition-all duration-100 ${
+                isActive
+                  ? isOwnMessage
+                    ? 'bg-white'
+                    : 'bg-blue-600 dark:bg-blue-500'
+                  : isOwnMessage
+                    ? 'bg-white/40'
+                    : 'bg-gray-300 dark:bg-gray-600'
+              }`}
+              style={{ height: `${height}px` }}
+            />
+          );
+        })}
+      </div>
+      
+      {/* Duration */}
+      <span className={`text-[11px] ${
+        isOwnMessage
+          ? 'text-white/70'
+          : 'text-gray-600 dark:text-gray-400'
+      }`}>
+        {formatDuration(isPlaying ? currentTime : duration || 0)}
+      </span>
+    </div>
+  );
+};
 
 const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, messageRefs, onDelete, onEdit, onStartEdit }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -132,20 +233,11 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
 
     if (message.media.type.startsWith('audio')) {
       return (
-        <div className="flex items-center space-x-2">
-          <audio
-            src={message.media.url}
-            controls
-            controlsList="nodownload noplaybackrate"
-            preload="metadata"
-            className="h-10 max-w-[200px] audio-player"
-          />
-          {message.media.duration && (
-            <span className="text-[11px] text-[#667781] dark:text-[#8696a0]">
-              {Math.floor(message.media.duration / 60)}:{(message.media.duration % 60).toString().padStart(2, '0')}
-            </span>
-          )}
-        </div>
+        <VoiceNotePlayer 
+          audioUrl={message.media.url} 
+          duration={message.media.duration}
+          isOwnMessage={isOwnMessage}
+        />
       );
     }
 

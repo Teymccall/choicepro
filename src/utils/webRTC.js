@@ -8,17 +8,62 @@ export class WebRTCConnection {
     this.peerConnection = null;
     this.localStream = null;
     this.remoteStream = null;
+    this.pendingRemoteStream = null; // Store stream if ref not ready
+    this.pendingLocalStream = null; // Store local stream if ref not ready
     this.localVideoRef = localVideoRef;
     this.remoteVideoRef = remoteVideoRef;
     this.onConnectionStateChange = onConnectionStateChange;
     
-    // STUN servers for NAT traversal
+    // ICE servers configuration: STUN + TURN for NAT traversal
+    // STUN: Discovers public IP address
+    // TURN: Relay server for strict NATs/firewalls
     this.configuration = {
       iceServers: [
+        // Google STUN servers (free, reliable)
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-      ]
+        { urls: 'stun:stun2.l.google.com:19302' },
+        
+        // TURN server configuration
+        // 🔧 SETUP REQUIRED: Get free TURN credentials from:
+        // - Twilio: https://www.twilio.com/stun-turn (free tier: 10GB/month)
+        // - Xirsys: https://xirsys.com (free tier available)
+        // - Metered: https://www.metered.ca/tools/openrelay/ (open relay)
+        
+        // Option 1: Metered TURN (Open Relay - No signup required)
+        {
+          urls: 'turn:openrelay.metered.ca:80',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        {
+          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
+        },
+        
+        // Option 2: Add your own TURN server credentials here
+        // Uncomment and configure with your credentials:
+        // {
+        //   urls: 'turn:your-turn-server.com:3478',
+        //   username: process.env.REACT_APP_TURN_USERNAME,
+        //   credential: process.env.REACT_APP_TURN_CREDENTIAL
+        // },
+        // {
+        //   urls: 'turn:your-turn-server.com:3478?transport=tcp',
+        //   username: process.env.REACT_APP_TURN_USERNAME,
+        //   credential: process.env.REACT_APP_TURN_CREDENTIAL
+        // }
+      ],
+      
+      // Additional configuration for better connectivity
+      iceCandidatePoolSize: 10,  // Pre-gather ICE candidates for faster connection
+      iceTransportPolicy: 'all'   // Use all candidates (STUN + TURN)
     };
   }
 
@@ -28,15 +73,82 @@ export class WebRTCConnection {
   async initializeMedia(constraints = { video: true, audio: true }) {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('✅ Local stream created:', this.localStream.getTracks().map(t => t.kind));
       
       if (this.localVideoRef?.current) {
+        console.log('📹 Attaching local stream to video element immediately');
         this.localVideoRef.current.srcObject = this.localStream;
+        
+        // Wait for metadata to load before playing to avoid AbortError
+        this.localVideoRef.current.onloadedmetadata = () => {
+          this.localVideoRef.current.play().catch(err => {
+            console.error('❌ Local video play error:', err);
+          });
+        };
+      } else {
+        console.warn('⚠️ Local video ref not available yet - storing stream');
+        this.pendingLocalStream = this.localStream;
       }
       
       return this.localStream;
     } catch (error) {
       console.error('Error accessing media devices:', error);
-      throw new Error('Could not access camera/microphone. Please check permissions.');
+      
+      // Provide detailed error messages based on error type
+      let errorMessage = 'Could not access camera/microphone.';
+      let errorDetails = '';
+      
+      switch (error.name) {
+        case 'NotAllowedError':
+        case 'PermissionDeniedError':
+          errorMessage = '🚫 Camera/Microphone Permission Denied';
+          errorDetails = constraints.video 
+            ? 'Please enable camera and microphone in your browser settings.'
+            : 'Please enable microphone in your browser settings.';
+          break;
+          
+        case 'NotFoundError':
+        case 'DevicesNotFoundError':
+          errorMessage = '📷 No Camera or Microphone Found';
+          errorDetails = constraints.video
+            ? 'Please connect a camera and microphone to your device.'
+            : 'Please connect a microphone to your device.';
+          break;
+          
+        case 'NotReadableError':
+        case 'TrackStartError':
+          errorMessage = '⚠️ Device Already in Use';
+          errorDetails = 'Your camera or microphone is being used by another application. Please close other apps and try again.';
+          break;
+          
+        case 'OverconstrainedError':
+        case 'ConstraintNotSatisfiedError':
+          errorMessage = '⚙️ Device Configuration Error';
+          errorDetails = 'Your device does not meet the required specifications. Try adjusting settings.';
+          break;
+          
+        case 'TypeError':
+          errorMessage = '🔧 Browser Compatibility Issue';
+          errorDetails = 'Your browser may not support video calls. Please use Chrome, Firefox, Safari, or Edge.';
+          break;
+          
+        case 'AbortError':
+          errorMessage = '❌ Media Access Interrupted';
+          errorDetails = 'Camera/microphone access was stopped. Please try again.';
+          break;
+          
+        default:
+          errorMessage = '❌ Camera/Microphone Access Failed';
+          errorDetails = `Error: ${error.message || 'Unknown error'}`;
+      }
+      
+      // Create detailed error object
+      const detailedError = new Error(errorMessage);
+      detailedError.details = errorDetails;
+      detailedError.originalError = error;
+      detailedError.constraints = constraints;
+      
+      throw detailedError;
     }
   }
 
@@ -55,16 +167,53 @@ export class WebRTCConnection {
 
     // Handle remote stream
     this.peerConnection.ontrack = (event) => {
-      console.log('Received remote track:', event.track.kind);
+      console.log('🎥 Received remote track:', event.track.kind, 'enabled:', event.track.enabled, 'muted:', event.track.muted);
+      console.log('📺 Remote streams available:', event.streams?.length);
+      
+      // CRITICAL: Ensure audio track is enabled and unmuted
+      if (event.track.kind === 'audio') {
+        event.track.enabled = true;
+        console.log('🔊 Audio track force-enabled:', event.track.enabled);
+      }
       
       // Use the stream directly from the event
       if (event.streams && event.streams[0]) {
         this.remoteStream = event.streams[0];
+        console.log('📹 Remote stream tracks:', this.remoteStream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState
+        })));
+        
+        // Force enable all audio tracks
+        this.remoteStream.getAudioTracks().forEach(track => {
+          track.enabled = true;
+          console.log('🔊 Force-enabled audio track:', track.id, track.enabled);
+        });
         
         if (this.remoteVideoRef?.current) {
           this.remoteVideoRef.current.srcObject = this.remoteStream;
-          console.log('Set remote stream to video element');
+          console.log('✅ Set remote stream to video/audio element');
+          
+          // Ensure element is unmuted
+          this.remoteVideoRef.current.muted = false;
+          this.remoteVideoRef.current.volume = 1.0;
+          console.log('🔊 Video/Audio element unmuted, volume:', this.remoteVideoRef.current.volume);
+          
+          // Wait for metadata to load before playing to avoid AbortError
+          this.remoteVideoRef.current.onloadedmetadata = () => {
+            this.remoteVideoRef.current.play().catch(err => {
+              console.error('❌ Remote video play error:', err);
+            });
+          };
+        } else {
+          // Store stream for later when video element is ready
+          console.warn('⚠️ Remote video ref not available yet - storing stream');
+          this.pendingRemoteStream = this.remoteStream;
         }
+      } else {
+        console.warn('⚠️ No streams in ontrack event');
       }
     };
 
@@ -102,19 +251,30 @@ export class WebRTCConnection {
   }
 
   /**
-   * Create answer (receiver side)
+   * Set remote offer (receiver side)
    */
-  async createAnswer(offer) {
+  async setRemoteOffer(offer) {
     if (!this.peerConnection) {
       this.createPeerConnection();
     }
-
     await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+  }
+
+  /**
+   * Create answer (receiver side)
+   */
+  async createAnswer() {
+    if (!this.peerConnection) {
+      throw new Error('Peer connection not initialized');
+    }
     
     const answer = await this.peerConnection.createAnswer();
     await this.peerConnection.setLocalDescription(answer);
     
-    return answer;
+    return {
+      type: answer.type,
+      sdp: answer.sdp
+    };
   }
 
   /**
@@ -155,9 +315,13 @@ export class WebRTCConnection {
    */
   toggleVideo(enabled) {
     if (this.localStream) {
+      console.log(`🎥 Toggling video: ${enabled ? 'ON' : 'OFF'}`);
       this.localStream.getVideoTracks().forEach(track => {
+        console.log(`📹 Video track ${track.id}: ${track.enabled} -> ${enabled}`);
         track.enabled = enabled;
       });
+    } else {
+      console.warn('⚠️ No local stream available for video toggle');
     }
   }
 
@@ -181,6 +345,60 @@ export class WebRTCConnection {
     });
 
     return videoStats;
+  }
+
+  /**
+   * Apply pending remote stream if video ref is now available
+   */
+  applyPendingRemoteStream() {
+    if (this.pendingRemoteStream && this.remoteVideoRef?.current) {
+      console.log('🔄 Applying pending remote stream to video element');
+      
+      // Force enable all audio tracks
+      this.pendingRemoteStream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log('🔊 Force-enabled pending audio track:', track.id, track.enabled);
+      });
+      
+      this.remoteVideoRef.current.srcObject = this.pendingRemoteStream;
+      
+      // Ensure element is unmuted
+      this.remoteVideoRef.current.muted = false;
+      this.remoteVideoRef.current.volume = 1.0;
+      console.log('🔊 Pending stream - Video/Audio element unmuted, volume:', this.remoteVideoRef.current.volume);
+      
+      // Wait for metadata to load before playing to avoid AbortError
+      this.remoteVideoRef.current.onloadedmetadata = () => {
+        this.remoteVideoRef.current.play().catch(err => {
+          console.error('❌ Pending remote video play error:', err);
+        });
+      };
+      
+      this.pendingRemoteStream = null; // Clear pending stream
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Apply pending local stream if video ref is now available
+   */
+  applyPendingLocalStream() {
+    if (this.pendingLocalStream && this.localVideoRef?.current) {
+      console.log('🔄 Applying pending local stream to video element');
+      this.localVideoRef.current.srcObject = this.pendingLocalStream;
+      
+      // Wait for metadata to load before playing to avoid AbortError
+      this.localVideoRef.current.onloadedmetadata = () => {
+        this.localVideoRef.current.play().catch(err => {
+          console.error('❌ Pending local video play error:', err);
+        });
+      };
+      
+      this.pendingLocalStream = null; // Clear pending stream
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -217,6 +435,8 @@ export class WebRTCConnection {
     this.peerConnection = null;
     this.localStream = null;
     this.remoteStream = null;
+    this.pendingRemoteStream = null;
+    this.pendingLocalStream = null;
   }
 }
 

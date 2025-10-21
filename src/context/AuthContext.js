@@ -10,9 +10,7 @@ import {
   signInWithPopup,
   browserLocalPersistence,
   setPersistence,
-  sendPasswordResetEmail,
-  signInWithRedirect,
-  getRedirectResult
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   doc,

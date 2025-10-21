@@ -21,8 +21,18 @@ export const useWebRTC = (user, partner) => {
   const webRTCConnectionRef = useRef(null);
   const callTimerRef = useRef(null);
   const iceCandidatesQueueRef = useRef([]);
+  const callerCandidatesQueueRef = useRef([]);
+  const recipientCandidatesQueueRef = useRef([]);
+  const qualityCheckIntervalRef = useRef(null);
+  const reconnectionAttemptRef = useRef(0);
+  const reconnectionTimeoutRef = useRef(null);
+  const MAX_RECONNECTION_ATTEMPTS = 3;
+  const isEndingCallRef = useRef(false);
+  const isRejectingCallRef = useRef(false);
+  const isStartingCallRef = useRef(false);
+  const isAnsweringCallRef = useRef(false);
 
-  // Initialize WebRTC connection
+  // Initialize WebRTC connection (attemptReconnection defined later)
   const initializeConnection = useCallback(() => {
     if (!webRTCConnectionRef.current) {
       webRTCConnectionRef.current = new WebRTCConnection(
@@ -30,16 +40,81 @@ export const useWebRTC = (user, partner) => {
         remoteVideoRef,
         (state) => {
           console.log('Connection state changed:', state);
+          
           if (state === 'connected') {
             setConnectionQuality('good');
-          } else if (state === 'disconnected' || state === 'failed') {
+            // Reset reconnection attempts on successful connection
+            reconnectionAttemptRef.current = 0;
+            if (reconnectionTimeoutRef.current) {
+              clearTimeout(reconnectionTimeoutRef.current);
+              reconnectionTimeoutRef.current = null;
+            }
+            
+            // Notify user if this was a reconnection
+            if (callStatus === 'active' && connectionQuality === 'poor') {
+              toast.success('Connection restored!', { duration: 2000 });
+            }
+          } else if (state === 'connecting') {
+            setConnectionQuality('fair');
+          } else if (state === 'disconnected') {
+            console.log('Connection disconnected, may reconnect automatically');
             setConnectionQuality('poor');
+            
+            // Only attempt reconnection if call is active
+            // Note: attemptReconnection is called inline to avoid dependency issues
+            if (callStatus === 'active' && reconnectionAttemptRef.current < MAX_RECONNECTION_ATTEMPTS) {
+              reconnectionAttemptRef.current += 1;
+              console.log(`Reconnection attempt ${reconnectionAttemptRef.current}/${MAX_RECONNECTION_ATTEMPTS}`);
+              
+              toast(
+                `Connection lost. Reconnecting... (${reconnectionAttemptRef.current}/${MAX_RECONNECTION_ATTEMPTS})`,
+                { icon: '🔄', duration: 3000 }
+              );
+
+              const delay = reconnectionAttemptRef.current * 2000;
+              reconnectionTimeoutRef.current = setTimeout(() => {
+                console.log('Waiting for ICE to renegotiate...');
+              }, delay);
+            } else if (callStatus === 'active' && reconnectionAttemptRef.current >= MAX_RECONNECTION_ATTEMPTS) {
+              console.log('Max reconnection attempts reached');
+              toast.error('Connection lost. Call will end.', { duration: 4000 });
+              // Use setTimeout to break out of this callback
+              setTimeout(() => {
+                // Will be handled by cleanup
+                setCallStatus('idle');
+              }, 2000);
+            }
+          } else if (state === 'failed') {
+            console.log('Connection failed');
+            setConnectionQuality('poor');
+            
+            // Attempt reconnection for failed state (inline to avoid dependency)
+            if (callStatus === 'active' && reconnectionAttemptRef.current < MAX_RECONNECTION_ATTEMPTS) {
+              reconnectionAttemptRef.current += 1;
+              console.log(`Reconnection attempt ${reconnectionAttemptRef.current}/${MAX_RECONNECTION_ATTEMPTS}`);
+              
+              toast(
+                `Connection lost. Reconnecting... (${reconnectionAttemptRef.current}/${MAX_RECONNECTION_ATTEMPTS})`,
+                { icon: '🔄', duration: 3000 }
+              );
+
+              const delay = reconnectionAttemptRef.current * 2000;
+              reconnectionTimeoutRef.current = setTimeout(() => {
+                console.log('Waiting for ICE to renegotiate...');
+              }, delay);
+            } else if (callStatus === 'active' && reconnectionAttemptRef.current >= MAX_RECONNECTION_ATTEMPTS) {
+              console.log('Max reconnection attempts reached');
+              toast.error('Connection lost. Call will end.', { duration: 4000 });
+              setTimeout(() => {
+                setCallStatus('idle');
+              }, 2000);
+            }
           }
         }
       );
     }
     return webRTCConnectionRef.current;
-  }, []);
+  }, [callStatus, connectionQuality, MAX_RECONNECTION_ATTEMPTS]);
 
   // Start call timer
   const startCallTimer = useCallback(() => {
@@ -55,6 +130,64 @@ export const useWebRTC = (user, partner) => {
       callTimerRef.current = null;
     }
     setCallDuration(0);
+  }, []);
+
+  // Start network quality monitoring
+  const startQualityMonitoring = useCallback(() => {
+    if (qualityCheckIntervalRef.current) return;
+
+    qualityCheckIntervalRef.current = setInterval(async () => {
+      if (!webRTCConnectionRef.current?.peerConnection) return;
+
+      try {
+        const stats = await webRTCConnectionRef.current.getConnectionStats();
+        
+        if (!stats) return;
+
+        // Check packet loss
+        const packetsLost = stats.packetsLost || 0;
+        const jitter = stats.jitter || 0;
+        
+        // Determine quality based on metrics
+        // Packet loss thresholds: < 1% = excellent, 1-3% = good, 3-5% = fair, > 5% = poor
+        let quality = 'good';
+        let shouldWarn = false;
+        
+        if (packetsLost > 100 || jitter > 100) {
+          quality = 'poor';
+          shouldWarn = true;
+        } else if (packetsLost > 50 || jitter > 50) {
+          quality = 'fair';
+        }
+        
+        setConnectionQuality(quality);
+        
+        // Warn user only if quality degrades significantly
+        if (shouldWarn && connectionQuality !== 'poor') {
+          toast('⚠️ Poor connection quality. Video may lag.', {
+            duration: 3000,
+            icon: '📶'
+          });
+        }
+        
+        console.log('Connection stats:', {
+          quality,
+          packetsLost,
+          jitter,
+          bytesReceived: stats.bytesReceived
+        });
+      } catch (error) {
+        console.error('Error checking connection stats:', error);
+      }
+    }, 5000); // Check every 5 seconds
+  }, [connectionQuality]);
+
+  // Stop quality monitoring
+  const stopQualityMonitoring = useCallback(() => {
+    if (qualityCheckIntervalRef.current) {
+      clearInterval(qualityCheckIntervalRef.current);
+      qualityCheckIntervalRef.current = null;
+    }
   }, []);
 
   // Request to start call (shows permission prompt first)
@@ -74,6 +207,14 @@ export const useWebRTC = (user, partner) => {
       return;
     }
 
+    // Prevent duplicate call starts
+    if (isStartingCallRef.current) {
+      console.log('⚠️ startCall already in progress, skipping duplicate call');
+      return;
+    }
+    
+    isStartingCallRef.current = true;
+
     // Close permission prompt
     setShowPermissionPrompt(false);
     setPendingCallType(null);
@@ -89,7 +230,23 @@ export const useWebRTC = (user, partner) => {
         audio: true
       };
       
-      await connection.initializeMedia(constraints);
+      console.log('Initializing media with constraints:', constraints);
+      const stream = await connection.initializeMedia(constraints);
+      console.log('Media initialized, stream:', stream, 'tracks:', stream.getTracks());
+      
+      // Ensure video state is properly set based on call type
+      if (type === 'video') {
+        console.log('🎥 Video call - ensuring video is enabled');
+        setIsVideoEnabled(true);
+        // Make sure video tracks are enabled
+        stream.getVideoTracks().forEach(track => {
+          track.enabled = true;
+          console.log(`📹 Video track ${track.id} enabled: ${track.enabled}`);
+        });
+      } else {
+        console.log('🎵 Audio call - disabling video');
+        setIsVideoEnabled(false);
+      }
 
       // Create call in Firebase
       const callsRef = ref(rtdb, 'calls');
@@ -148,11 +305,19 @@ export const useWebRTC = (user, partner) => {
         
         if (callData?.answer && connection.peerConnection.signalingState !== 'stable') {
           await connection.setRemoteAnswer(callData.answer);
+          
+          // Process queued recipient ICE candidates after answer is set
+          console.log(`Processing ${recipientCandidatesQueueRef.current.length} queued candidates`);
+          recipientCandidatesQueueRef.current.forEach(candidate => {
+            connection.addIceCandidate(candidate);
+          });
+          recipientCandidatesQueueRef.current = [];
         }
 
         if (callData?.status === 'active' && callStatus !== 'active') {
           setCallStatus('active');
           startCallTimer();
+          startQualityMonitoring();
         }
 
         if (callData?.status === 'ended' || callData?.status === 'rejected') {
@@ -166,21 +331,53 @@ export const useWebRTC = (user, partner) => {
       onValue(recipientCandidatesRef, (snapshot) => {
         snapshot.forEach((childSnapshot) => {
           const candidate = childSnapshot.val();
-          connection.addIceCandidate(candidate);
+          
+          // Only add candidate if remote description is set
+          if (connection.peerConnection.remoteDescription) {
+            connection.addIceCandidate(candidate);
+          } else {
+            // Queue candidate for later processing
+            console.log('Queueing recipient ICE candidate (no remote description yet)');
+            recipientCandidatesQueueRef.current.push(candidate);
+          }
         });
       });
 
       toast.success(`Calling ${partner.displayName}...`);
     } catch (error) {
       console.error('Error starting call:', error);
-      toast.error(error.message || 'Failed to start call');
+      
+      // Display detailed error message
+      if (error.details) {
+        toast.error(
+          <div>
+            <div className="font-semibold">{error.message}</div>
+            <div className="text-sm mt-1">{error.details}</div>
+          </div>,
+          { duration: 6000 }
+        );
+      } else {
+        toast.error(error.message || 'Failed to start call');
+      }
+      
       setCallStatus('idle');
+    } finally {
+      // Reset flag for future calls
+      isStartingCallRef.current = false;
     }
-  }, [user, partner, initializeConnection, startCallTimer, callStatus]);
+  }, [user, partner, initializeConnection, startCallTimer, startQualityMonitoring, callStatus]);
 
   // Answer call
   const answerCall = useCallback(async (callId, callData) => {
     if (!user?.uid || !partner?.uid) return;
+
+    // Prevent duplicate answer attempts
+    if (isAnsweringCallRef.current) {
+      console.log('⚠️ answerCall already in progress, skipping duplicate call');
+      return;
+    }
+    
+    isAnsweringCallRef.current = true;
 
     try {
       setCurrentCallId(callId);
@@ -194,10 +391,34 @@ export const useWebRTC = (user, partner) => {
         audio: true
       };
       
-      await connection.initializeMedia(constraints);
+      const stream = await connection.initializeMedia(constraints);
+      
+      // Ensure video state is properly set based on call type
+      if (callData.type === 'video') {
+        console.log('🎥 Answering video call - ensuring video is enabled');
+        setIsVideoEnabled(true);
+        // Make sure video tracks are enabled
+        stream.getVideoTracks().forEach(track => {
+          track.enabled = true;
+          console.log(`📹 Video track ${track.id} enabled: ${track.enabled}`);
+        });
+      } else {
+        console.log('🎵 Answering audio call - disabling video');
+        setIsVideoEnabled(false);
+      }
 
+      // Set remote offer first
+      await connection.setRemoteOffer(callData.offer);
+      
+      // Process queued caller ICE candidates after offer is set
+      console.log(`Processing ${callerCandidatesQueueRef.current.length} queued caller candidates`);
+      callerCandidatesQueueRef.current.forEach(candidate => {
+        connection.addIceCandidate(candidate);
+      });
+      callerCandidatesQueueRef.current = [];
+      
       // Create answer
-      const answer = await connection.createAnswer(callData.offer);
+      const answer = await connection.createAnswer();
       
       const callRef = ref(rtdb, `calls/${callId}`);
       await update(callRef, {
@@ -205,6 +426,10 @@ export const useWebRTC = (user, partner) => {
         status: 'active',
         answeredAt: Date.now()
       });
+
+      // Start call timer and quality monitoring
+      startCallTimer();
+      startQualityMonitoring();
 
       // Remove incoming call notification
       if (user?.uid) {
@@ -225,7 +450,15 @@ export const useWebRTC = (user, partner) => {
       onValue(callerCandidatesRef, (snapshot) => {
         snapshot.forEach((childSnapshot) => {
           const candidate = childSnapshot.val();
-          connection.addIceCandidate(candidate);
+          
+          // Only add candidate if remote description is set
+          if (connection.peerConnection.remoteDescription) {
+            connection.addIceCandidate(candidate);
+          } else {
+            // Queue candidate for later processing
+            console.log('Queueing caller ICE candidate (no remote description yet)');
+            callerCandidatesQueueRef.current.push(candidate);
+          }
         });
       });
 
@@ -255,7 +488,20 @@ export const useWebRTC = (user, partner) => {
       toast.success('Call connected');
     } catch (error) {
       console.error('Error answering call:', error);
-      toast.error('Failed to answer call');
+      
+      // Display detailed error message
+      if (error.details) {
+        toast.error(
+          <div>
+            <div className="font-semibold">{error.message}</div>
+            <div className="text-sm mt-1">{error.details}</div>
+          </div>,
+          { duration: 6000 }
+        );
+      } else {
+        toast.error('Failed to answer call');
+      }
+      
       // Close connection on error
       if (webRTCConnectionRef.current) {
         webRTCConnectionRef.current.close();
@@ -264,12 +510,23 @@ export const useWebRTC = (user, partner) => {
       stopCallTimer();
       setCallStatus('idle');
       setCurrentCallId(null);
+    } finally {
+      // Reset flag for future calls
+      isAnsweringCallRef.current = false;
     }
-  }, [user, partner, initializeConnection, startCallTimer, stopCallTimer]);
+  }, [user, partner, initializeConnection, startCallTimer, stopCallTimer, startQualityMonitoring]);
 
   // Reject call
   const rejectCall = useCallback(async (callId) => {
     if (!callId) return;
+
+    // Prevent duplicate calls
+    if (isRejectingCallRef.current) {
+      console.log('⚠️ rejectCall already in progress, skipping duplicate call');
+      return;
+    }
+    
+    isRejectingCallRef.current = true;
 
     try {
       const callRef = ref(rtdb, `calls/${callId}`);
@@ -289,13 +546,27 @@ export const useWebRTC = (user, partner) => {
       toast('Call rejected');
     } catch (error) {
       console.error('Error rejecting call:', error);
+    } finally {
+      // Reset flag for future calls
+      isRejectingCallRef.current = false;
     }
   }, [user]);
 
   // End call
   const endCall = useCallback(async () => {
+    console.log('🔴 endCall function called! Current state:', { currentCallId, callStatus, callType });
+    
+    // Prevent duplicate calls
+    if (isEndingCallRef.current) {
+      console.log('⚠️ endCall already in progress, skipping duplicate call');
+      return;
+    }
+    
+    isEndingCallRef.current = true;
+    
     try {
       if (currentCallId) {
+        console.log('🔴 Updating call status to ended in Firebase...');
         const callRef = ref(rtdb, `calls/${currentCallId}`);
         await update(callRef, {
           status: 'ended',
@@ -324,18 +595,33 @@ export const useWebRTC = (user, partner) => {
       }
 
       stopCallTimer();
+      stopQualityMonitoring();
+      
+      // Clear reconnection timeout
+      if (reconnectionTimeoutRef.current) {
+        clearTimeout(reconnectionTimeoutRef.current);
+        reconnectionTimeoutRef.current = null;
+      }
+      reconnectionAttemptRef.current = 0;
+      
       setCallStatus('idle');
       setCurrentCallId(null);
       setCallType(null);
       setIsAudioEnabled(true);
       setIsVideoEnabled(true);
+      setConnectionQuality('good');
       iceCandidatesQueueRef.current = [];
+      callerCandidatesQueueRef.current = [];
+      recipientCandidatesQueueRef.current = [];
 
       toast('Call ended');
     } catch (error) {
       console.error('Error ending call:', error);
+    } finally {
+      // Reset flag so future calls can end
+      isEndingCallRef.current = false;
     }
-  }, [currentCallId, stopCallTimer, user, partner]);
+  }, [currentCallId, stopCallTimer, stopQualityMonitoring, user, partner]);
 
   // Toggle audio
   const toggleAudio = useCallback(() => {
@@ -350,8 +636,11 @@ export const useWebRTC = (user, partner) => {
   const toggleVideo = useCallback(() => {
     if (webRTCConnectionRef.current) {
       const newState = !isVideoEnabled;
+      console.log(`🎥 Video toggle clicked: ${isVideoEnabled} -> ${newState}`);
       webRTCConnectionRef.current.toggleVideo(newState);
       setIsVideoEnabled(newState);
+    } else {
+      console.warn('⚠️ No WebRTC connection available for video toggle');
     }
   }, [isVideoEnabled]);
 
@@ -378,6 +667,26 @@ export const useWebRTC = (user, partner) => {
     }
   }, [isSpeakerOn]);
 
+  // Apply pending remote stream when video element becomes available
+  useEffect(() => {
+    if (callStatus === 'active' && webRTCConnectionRef.current && remoteVideoRef.current) {
+      const applied = webRTCConnectionRef.current.applyPendingRemoteStream();
+      if (applied) {
+        console.log('✅ Applied pending remote stream after video element rendered');
+      }
+    }
+  }, [callStatus, remoteVideoRef]);
+
+  // Apply pending local stream when video element becomes available
+  useEffect(() => {
+    if (callStatus !== 'idle' && webRTCConnectionRef.current && localVideoRef.current) {
+      const applied = webRTCConnectionRef.current.applyPendingLocalStream();
+      if (applied) {
+        console.log('✅ Applied pending local stream after video element rendered');
+      }
+    }
+  }, [callStatus, localVideoRef]);
+
   // Cleanup on unmount or page refresh
   useEffect(() => {
     // Cleanup function when component unmounts
@@ -398,6 +707,7 @@ export const useWebRTC = (user, partner) => {
         webRTCConnectionRef.current.close();
       }
       stopCallTimer();
+      stopQualityMonitoring();
     };
 
     // Handle page refresh/close
@@ -417,7 +727,7 @@ export const useWebRTC = (user, partner) => {
       cleanup();
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [stopCallTimer, currentCallId]);
+  }, [stopCallTimer, stopQualityMonitoring, currentCallId]);
 
   return {
     callStatus,

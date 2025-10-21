@@ -662,45 +662,69 @@ const Settings = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-blue-900/20 pb-24">
+      {/* Hero Header */}
+      <div className="sticky top-0 z-40 backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-700/50">
+        <div className="max-w-6xl mx-auto px-6 py-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <Cog6ToothIcon className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">Settings</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Customize your experience</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Settings sections */}
-      <div className="space-y-6">
+      <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         {/* Profile Section */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <UserCircleIcon className="h-6 w-6" />
-            Profile Settings
-          </h2>
-          <div className="mt-4 space-y-4">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-pink-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300 hover:shadow-blue-500/20 dark:hover:shadow-purple-500/20">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+              <UserCircleIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Profile Settings</h2>
+          </div>
+          <div className="space-y-6">
             {/* Add Profile Picture */}
             <div className="flex justify-center">
-              <ProfilePicture size="lg" editable={isEditing} />
+              <div className="relative group/avatar">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full blur-md opacity-60 group-hover/avatar:opacity-100 transition-opacity"></div>
+                <div className="relative">
+                  <ProfilePicture size="lg" editable={isEditing} />
+                </div>
+              </div>
             </div>
             
             <div>
-              <label className="block text-sm font-medium">Display Name</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Display Name</label>
               <input
                 type="text"
                 value={profile.displayName}
                 onChange={(e) => setProfile({ ...profile, displayName: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                className="block w-full px-4 py-3 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-blue-500 dark:focus:border-purple-500 focus:ring-4 focus:ring-blue-500/20 dark:focus:ring-purple-500/20 transition-all"
                 disabled={!isEditing}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium">Email</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Email</label>
               <input
                 type="email"
                 value={profile.email}
                 disabled
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-50"
+                className="block w-full px-4 py-3 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-gray-100/70 dark:bg-gray-800/70 backdrop-blur-sm text-gray-600 dark:text-gray-400 cursor-not-allowed"
               />
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-3 pt-4">
               {!isEditing ? (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-2xl hover:from-blue-700 hover:to-purple-700 transform hover:scale-105 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-purple-500/40"
                 >
                   Edit Profile
                 </button>
@@ -708,42 +732,47 @@ const Settings = () => {
                 <>
                   <button
                     onClick={() => setIsEditing(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                    className="px-6 py-3 bg-gray-200/70 dark:bg-gray-700/70 text-gray-700 dark:text-gray-300 font-semibold rounded-2xl hover:bg-gray-300 dark:hover:bg-gray-600 backdrop-blur-sm transition-all duration-200"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleProfileUpdate}
                     disabled={isSubmitting}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
+                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-2xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-purple-500/40"
                   >
-                    Save Changes
+                    {isSubmitting ? 'Saving...' : 'Save Changes'}
                   </button>
                 </>
               )}
             </div>
           </div>
+          </div>
         </section>
 
         {/* Password Section */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <KeyIcon className="h-6 w-6" />
-            Change Password
-          </h2>
-          <div className="mt-4 space-y-4">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-pink-500/10 via-purple-500/10 to-blue-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-pink-600 to-purple-600 flex items-center justify-center">
+              <KeyIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Change Password</h2>
+          </div>
+          <div className="space-y-5">
             <div className="relative">
-              <label className="block text-sm font-medium">New Password</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">New Password</label>
               <input
                 type={showPassword ? "text" : "password"}
                 value={password.new}
                 onChange={(e) => setPassword({ ...password, new: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                className="block w-full px-4 py-3 pr-12 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 dark:focus:border-pink-500 focus:ring-4 focus:ring-purple-500/20 dark:focus:ring-pink-500/20 transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-8 text-gray-500"
+                className="absolute right-4 top-11 text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-pink-500 transition-colors"
               >
                 {showPassword ? (
                   <EyeSlashIcon className="h-5 w-5" />
@@ -753,33 +782,38 @@ const Settings = () => {
               </button>
             </div>
             <div>
-              <label className="block text-sm font-medium">Confirm New Password</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Confirm New Password</label>
               <input
                 type="password"
                 value={password.confirm}
                 onChange={(e) => setPassword({ ...password, confirm: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                className="block w-full px-4 py-3 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 dark:focus:border-pink-500 focus:ring-4 focus:ring-purple-500/20 dark:focus:ring-pink-500/20 transition-all"
               />
             </div>
-            <div className="flex justify-end">
+            <div className="flex justify-end pt-4">
               <button
                 onClick={handlePasswordChange}
                 disabled={isSubmitting || !password.new || !password.confirm || password.new !== password.confirm}
-                className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
+                className="px-6 py-3 bg-gradient-to-r from-pink-600 to-purple-600 text-white font-semibold rounded-2xl hover:from-pink-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 transition-all duration-200 shadow-lg shadow-pink-500/30 hover:shadow-xl hover:shadow-purple-500/40"
               >
-                Update Password
+                {isSubmitting ? 'Updating...' : 'Update Password'}
               </button>
             </div>
+          </div>
           </div>
         </section>
 
         {/* Notification Settings */}
-        <section className="bg-white dark:bg-dark-surface rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2 dark:text-white">
-            <BellIcon className="h-6 w-6" />
-            Notification Settings
-          </h2>
-          <div className="mt-4 space-y-4">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 via-blue-500/10 to-purple-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-green-600 to-blue-600 flex items-center justify-center">
+              <BellIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Notification Settings</h2>
+          </div>
+          <div className="space-y-6">
             <div className="notification-settings">
               {isLoading ? (
                 <div className="py-2 flex items-center justify-center">
@@ -795,79 +829,79 @@ const Settings = () => {
                 </p>
               ) : (
                 <>
-                  <div className="flex items-center justify-between py-2">
-                    <label htmlFor="chatNotifications" className="flex-grow dark:text-white">
-                      Chat Messages
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Get notified when you receive new chat messages</p>
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-white/30 dark:bg-gray-900/30 backdrop-blur-sm hover:bg-white/50 dark:hover:bg-gray-900/50 transition-all">
+                    <label htmlFor="chatNotifications" className="flex-grow cursor-pointer">
+                      <span className="text-base font-semibold text-gray-900 dark:text-white">Chat Messages</span>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get notified when you receive new chat messages</p>
                     </label>
-                    <div className="relative">
+                    <div className="relative ml-4">
                       <Switch
                         id="chatNotifications"
                         checked={notificationSettings.chatNotifications}
                         onChange={(checked) => handleNotificationToggle('chatNotifications', checked)}
                         disabled={isSubmitting || !isOnline}
                         className={`${
-                          notificationSettings.chatNotifications ? 'bg-black dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-                        } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:ring-offset-2 ${
-                          isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                          notificationSettings.chatNotifications ? 'bg-gradient-to-r from-green-500 to-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                        } relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-green-500/30 ${
+                          isSubmitting ? 'opacity-50 cursor-not-allowed' : 'shadow-md'
                         }`}
                       >
                         <span
                           className={`${
-                            notificationSettings.chatNotifications ? 'translate-x-6' : 'translate-x-1'
-                          } inline-block h-4 w-4 transform rounded-full bg-white dark:bg-black transition-transform`}
+                            notificationSettings.chatNotifications ? 'translate-x-8' : 'translate-x-1'
+                          } inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform`}
                         />
                       </Switch>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between py-2">
-                    <label htmlFor="topicNotifications" className="flex-grow dark:text-white">
-                      Topic Responses
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Get notified when someone responds to your topics</p>
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-white/30 dark:bg-gray-900/30 backdrop-blur-sm hover:bg-white/50 dark:hover:bg-gray-900/50 transition-all">
+                    <label htmlFor="topicNotifications" className="flex-grow cursor-pointer">
+                      <span className="text-base font-semibold text-gray-900 dark:text-white">Topic Responses</span>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get notified when someone responds to your topics</p>
                     </label>
-                    <div className="relative">
+                    <div className="relative ml-4">
                       <Switch
                         id="topicNotifications"
                         checked={notificationSettings.topicNotifications}
                         onChange={(checked) => handleNotificationToggle('topicNotifications', checked)}
                         disabled={isSubmitting || !isOnline}
                         className={`${
-                          notificationSettings.topicNotifications ? 'bg-black dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-                        } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:ring-offset-2 ${
-                          isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                          notificationSettings.topicNotifications ? 'bg-gradient-to-r from-blue-500 to-purple-500' : 'bg-gray-300 dark:bg-gray-600'
+                        } relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-blue-500/30 ${
+                          isSubmitting ? 'opacity-50 cursor-not-allowed' : 'shadow-md'
                         }`}
                       >
                         <span
                           className={`${
-                            notificationSettings.topicNotifications ? 'translate-x-6' : 'translate-x-1'
-                          } inline-block h-4 w-4 transform rounded-full bg-white dark:bg-black transition-transform`}
+                            notificationSettings.topicNotifications ? 'translate-x-8' : 'translate-x-1'
+                          } inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform`}
                         />
                       </Switch>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between py-2">
-                    <label htmlFor="systemNotifications" className="flex-grow dark:text-white">
-                      System Notifications
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Get notified about important system updates</p>
+                  <div className="flex items-center justify-between p-4 rounded-2xl bg-white/30 dark:bg-gray-900/30 backdrop-blur-sm hover:bg-white/50 dark:hover:bg-gray-900/50 transition-all">
+                    <label htmlFor="systemNotifications" className="flex-grow cursor-pointer">
+                      <span className="text-base font-semibold text-gray-900 dark:text-white">System Notifications</span>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Get notified about important system updates</p>
                     </label>
-                    <div className="relative">
+                    <div className="relative ml-4">
                       <Switch
                         id="systemNotifications"
                         checked={notificationSettings.systemNotifications}
                         onChange={(checked) => handleNotificationToggle('systemNotifications', checked)}
                         disabled={isSubmitting || !isOnline}
                         className={`${
-                          notificationSettings.systemNotifications ? 'bg-black dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-                        } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:ring-offset-2 ${
-                          isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                          notificationSettings.systemNotifications ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300 dark:bg-gray-600'
+                        } relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-purple-500/30 ${
+                          isSubmitting ? 'opacity-50 cursor-not-allowed' : 'shadow-md'
                         }`}
                       >
                         <span
                           className={`${
-                            notificationSettings.systemNotifications ? 'translate-x-6' : 'translate-x-1'
-                          } inline-block h-4 w-4 transform rounded-full bg-white dark:bg-black transition-transform`}
+                            notificationSettings.systemNotifications ? 'translate-x-8' : 'translate-x-1'
+                          } inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform`}
                         />
                       </Switch>
                     </div>
@@ -876,117 +910,161 @@ const Settings = () => {
               )}
             </div>
           </div>
+          </div>
         </section>
 
         {/* Privacy Settings */}
-        <section className="bg-white dark:bg-dark-surface rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2 dark:text-white">
-            <ShieldCheckIcon className="h-6 w-6" />
-            Privacy Settings
-          </h2>
-          <div className="mt-4 space-y-4">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-red-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center">
+              <ShieldCheckIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Privacy Settings</h2>
+          </div>
+          <div className="space-y-4">
             {Object.entries(privacy).map(([key, enabled]) => (
-              <div key={key} className="flex items-center justify-between">
-                <span className="text-sm font-medium capitalize dark:text-white">
+              <div key={key} className="flex items-center justify-between p-4 rounded-2xl bg-white/30 dark:bg-gray-900/30 backdrop-blur-sm hover:bg-white/50 dark:hover:bg-gray-900/50 transition-all">
+                <span className="text-base font-semibold capitalize text-gray-900 dark:text-white">
                   {key.replace(/([A-Z])/g, ' $1').trim()}
                 </span>
                 <Switch
                   checked={enabled}
                   onChange={() => handlePrivacyChange(key)}
                   className={`${
-                    enabled ? 'bg-black dark:bg-white' : 'bg-gray-200 dark:bg-gray-700'
-                  } relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white focus:ring-offset-2`}
+                    enabled ? 'bg-gradient-to-r from-purple-500 to-pink-500' : 'bg-gray-300 dark:bg-gray-600'
+                  } relative inline-flex h-7 w-14 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-purple-500/30 shadow-md`}
                 >
                   <span
                     className={`${
-                      enabled ? 'translate-x-6' : 'translate-x-1'
-                    } inline-block h-4 w-4 transform rounded-full bg-white dark:bg-black transition-transform`}
+                      enabled ? 'translate-x-8' : 'translate-x-1'
+                    } inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform`}
                   />
                 </Switch>
               </div>
             ))}
           </div>
+          </div>
         </section>
 
         {/* Theme Settings */}
-        <section className="bg-white dark:bg-dark-surface rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2 dark:text-white">
-            <PaintBrushIcon className="h-6 w-6" />
-            Theme Settings
-          </h2>
-          <div className="mt-4">
-            <div className="grid grid-cols-3 gap-3">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 via-orange-500/10 to-blue-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center">
+              <PaintBrushIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Theme Settings</h2>
+          </div>
+          <div>
+            <div className="grid grid-cols-3 gap-4">
               <button
                 onClick={() => handleThemeChange('light')}
-                className={`p-3 rounded-lg border-2 ${
-                  theme === 'light' ? 'border-black dark:border-white' : 'border-gray-200 dark:border-gray-700'
-                } flex items-center justify-center gap-2 transition-colors dark:text-white`}
+                className={`relative group/theme p-5 rounded-2xl border-2 ${
+                  theme === 'light' ? 'border-yellow-500 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20' : 'border-gray-300 dark:border-gray-600 bg-white/30 dark:bg-gray-900/30'
+                } hover:border-yellow-400 dark:hover:border-yellow-500 flex flex-col items-center justify-center gap-2 transition-all duration-200 backdrop-blur-sm shadow-md hover:shadow-lg transform hover:scale-105`}
               >
-                <SunIcon className="h-5 w-5" />
-                <span>Light</span>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                  theme === 'light' ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gray-200 dark:bg-gray-700'
+                } transition-all duration-200`}>
+                  <SunIcon className="h-6 w-6 text-white" />
+                </div>
+                <span className={`font-semibold ${
+                  theme === 'light' ? 'text-yellow-700 dark:text-yellow-400' : 'text-gray-700 dark:text-gray-300'
+                }`}>Light</span>
               </button>
               <button
                 onClick={() => handleThemeChange('dark')}
-                className={`p-3 rounded-lg border-2 ${
-                  theme === 'dark' ? 'border-black dark:border-white' : 'border-gray-200 dark:border-gray-700'
-                } flex items-center justify-center gap-2 transition-colors dark:text-white`}
+                className={`relative group/theme p-5 rounded-2xl border-2 ${
+                  theme === 'dark' ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20' : 'border-gray-300 dark:border-gray-600 bg-white/30 dark:bg-gray-900/30'
+                } hover:border-blue-400 dark:hover:border-blue-500 flex flex-col items-center justify-center gap-2 transition-all duration-200 backdrop-blur-sm shadow-md hover:shadow-lg transform hover:scale-105`}
               >
-                <MoonIcon className="h-5 w-5" />
-                <span>Dark</span>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                  theme === 'dark' ? 'bg-gradient-to-br from-blue-600 to-purple-600' : 'bg-gray-200 dark:bg-gray-700'
+                } transition-all duration-200`}>
+                  <MoonIcon className="h-6 w-6 text-white" />
+                </div>
+                <span className={`font-semibold ${
+                  theme === 'dark' ? 'text-blue-700 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'
+                }`}>Dark</span>
               </button>
               <button
                 onClick={() => handleThemeChange('system')}
-                className={`p-3 rounded-lg border-2 ${
-                  theme === 'system' ? 'border-black dark:border-white' : 'border-gray-200 dark:border-gray-700'
-                } flex items-center justify-center gap-2 transition-colors dark:text-white`}
+                className={`relative group/theme p-5 rounded-2xl border-2 ${
+                  theme === 'system' ? 'border-green-500 bg-gradient-to-br from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20' : 'border-gray-300 dark:border-gray-600 bg-white/30 dark:bg-gray-900/30'
+                } hover:border-green-400 dark:hover:border-green-500 flex flex-col items-center justify-center gap-2 transition-all duration-200 backdrop-blur-sm shadow-md hover:shadow-lg transform hover:scale-105`}
               >
-                <ComputerDesktopIcon className="h-5 w-5" />
-                <span>System</span>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                  theme === 'system' ? 'bg-gradient-to-br from-green-500 to-blue-500' : 'bg-gray-200 dark:bg-gray-700'
+                } transition-all duration-200`}>
+                  <ComputerDesktopIcon className="h-6 w-6 text-white" />
+                </div>
+                <span className={`font-semibold ${
+                  theme === 'system' ? 'text-green-700 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'
+                }`}>System</span>
               </button>
             </div>
+          </div>
           </div>
         </section>
 
         {/* Data Management */}
-        <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <Cog6ToothIcon className="h-6 w-6" />
-            Data Management
-          </h2>
-          <div className="mt-4 space-y-4">
-            <div className="flex gap-4">
+        <section className="group relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-orange-500/10 to-yellow-500/10 rounded-3xl blur-xl group-hover:blur-2xl transition-all"></div>
+          <div className="relative backdrop-blur-xl bg-white/80 dark:bg-gray-800/80 rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-8 transition-all duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-600 to-orange-600 flex items-center justify-center">
+              <Cog6ToothIcon className="h-5 w-5 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Data Management</h2>
+          </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <button
                 onClick={handleClearTopics}
                 disabled={isClearing}
-                className="flex-1 p-4 rounded-lg border-2 border-red-200 hover:border-red-500 flex items-center justify-center gap-2 text-red-600 hover:text-red-700"
+                className="group/btn relative p-6 rounded-2xl border-2 border-red-300 dark:border-red-700 bg-white/30 dark:bg-gray-900/30 hover:bg-red-50 dark:hover:bg-red-900/20 flex flex-col items-center justify-center gap-3 transition-all duration-200 backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-md hover:shadow-lg hover:border-red-500"
                     >
-                <TrashIcon className="h-5 w-5" />
-                Clear All Topics
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500 to-pink-500 flex items-center justify-center group-hover/btn:scale-110 transition-transform">
+                  <TrashIcon className="h-6 w-6 text-white" />
+                </div>
+                <span className="font-semibold text-red-700 dark:text-red-400">Clear All Topics</span>
+                <p className="text-xs text-center text-gray-600 dark:text-gray-400">Permanently delete all conversation topics</p>
                     </button>
                       <button
                 onClick={handleResetSettings}
                 disabled={isSubmitting}
-                className="flex-1 p-4 rounded-lg border-2 border-gray-200 hover:border-primary-500 flex items-center justify-center gap-2"
+                className="group/btn relative p-6 rounded-2xl border-2 border-blue-300 dark:border-blue-700 bg-white/30 dark:bg-gray-900/30 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex flex-col items-center justify-center gap-3 transition-all duration-200 backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 shadow-md hover:shadow-lg hover:border-blue-500"
               >
-                <ArrowPathIcon className="h-5 w-5" />
-                Reset All Settings
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center group-hover/btn:scale-110 transition-transform">
+                  <ArrowPathIcon className="h-6 w-6 text-white" />
+                </div>
+                <span className="font-semibold text-blue-700 dark:text-blue-400">Reset All Settings</span>
+                <p className="text-xs text-center text-gray-600 dark:text-gray-400">Restore default settings</p>
                       </button>
             </div>
+          </div>
           </div>
         </section>
       </div>
 
       {/* Success/Error Messages */}
       {successMessage && (
-        <div className="fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2">
-          <CheckCircleIcon className="h-5 w-5" />
-          {successMessage}
+        <div className="fixed bottom-24 right-6 z-50 backdrop-blur-xl bg-green-500/90 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border border-green-400 animate-slide-in">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <CheckCircleIcon className="h-5 w-5" />
+          </div>
+          <span className="font-semibold">{successMessage}</span>
       </div>
         )}
       {error && (
-        <div className="fixed bottom-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2">
-          <XCircleIcon className="h-5 w-5" />
-          {error}
+        <div className="fixed bottom-24 right-6 z-50 backdrop-blur-xl bg-red-500/90 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border border-red-400 animate-slide-in">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+            <XCircleIcon className="h-5 w-5" />
+          </div>
+          <span className="font-semibold">{error}</span>
         </div>
       )}
     </div>

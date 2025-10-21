@@ -84,6 +84,10 @@ const FloatingNav = () => {
       const unreadByTopic = {};
 
       Object.entries(data).forEach(([topicId, chat]) => {
+        // IMPORTANT: Only count messages from direct_chat for Chat badge
+        // Topic discussions should NOT appear in Chat badge
+        if (topicId !== 'direct_chat') return;
+        
         if (!chat) return;
 
         // Skip if user or partner is no longer available

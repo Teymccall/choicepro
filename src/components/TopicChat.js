@@ -33,6 +33,7 @@ import ProfilePicture from './ProfilePicture';
 import { getRelationshipLevel, RELATIONSHIP_LEVELS } from '../utils/relationshipLevels';
 import ImageViewer from './ImageViewer';
 import Message from './Message';
+import VoiceRecorder from './VoiceRecorder';
 import { formatTime } from '../utils/dateUtils';
 import { toast } from 'react-hot-toast';
 import { Timestamp } from 'firebase/firestore';
@@ -717,6 +718,75 @@ const TopicChat = ({ topic, onClose }) => {
     setNewMessage('');
     if (inputRef.current) {
       inputRef.current.style.height = '42px';
+    }
+  };
+
+  // Handle voice note sending
+  const handleVoiceNote = async (audioBlob, duration) => {
+    try {
+      console.log('🎤 Uploading voice note...', { duration, size: audioBlob.size });
+      
+      // Check if Cloudinary is configured
+      const cloudName = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
+      if (!cloudName) {
+        console.error('❌ Cloudinary not configured - REACT_APP_CLOUDINARY_CLOUD_NAME is missing');
+        toast.error('Voice notes not configured. Please set up Cloudinary.');
+        return;
+      }
+      
+      // Create FormData for upload
+      const formData = new FormData();
+      formData.append('file', audioBlob, `voice_${Date.now()}.webm`);
+      formData.append('upload_preset', 'choice_app_preset'); // Same preset as images
+      formData.append('resource_type', 'video'); // Cloudinary treats audio as video
+      
+      const uploadToast = toast.loading('Sending voice note...');
+      
+      // Upload to Cloudinary
+      console.log('📤 Uploading to Cloudinary:', cloudName);
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/upload`,
+        {
+          method: 'POST',
+          body: formData
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Upload failed:', response.status, errorText);
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Upload successful:', data.secure_url);
+      
+      // Send message with voice note
+      const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+      const messageRef = push(chatRef);
+      
+      await set(messageRef, {
+        userId: user.uid,
+        text: '', // Voice notes don't have text
+        media: {
+          url: data.secure_url,
+          type: 'audio/webm',
+          duration: duration,
+          publicId: data.public_id
+        },
+        timestamp: Date.now(),
+        userName: user.displayName,
+        userPhotoURL: user.photoURL,
+        partnerId: partner?.uid,
+        status: 'sent'
+      });
+      
+      toast.dismiss(uploadToast);
+      toast.success('Voice note sent!');
+      
+    } catch (error) {
+      console.error('Error sending voice note:', error);
+      toast.error('Failed to send voice note');
     }
   };
 
@@ -1544,18 +1614,20 @@ const TopicChat = ({ topic, onClose }) => {
                 )}
                 </div>
                 
-                {/* Send Button */}
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!newMessage.trim() && !selectedFile}
-                  className={`flex-shrink-0 p-3 rounded-2xl transition-all duration-200 ${
-                    (!newMessage.trim() && !selectedFile)
-                      ? 'bg-gray-200/50 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-xl hover:scale-105'
-                  }`}
-                >
-                  <PaperAirplaneIcon className="h-6 w-6" />
-                </button>
+                {/* Send Button or Voice Recorder */}
+                {(newMessage.trim() || selectedFile) ? (
+                  <button
+                    onClick={handleSendMessage}
+                    className="flex-shrink-0 p-3 rounded-2xl transition-all duration-200 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-xl hover:scale-105"
+                  >
+                    <PaperAirplaneIcon className="h-6 w-6" />
+                  </button>
+                ) : (
+                  <VoiceRecorder 
+                    onSend={handleVoiceNote}
+                    onCancel={() => console.log('Voice recording canceled')}
+                  />
+                )}
               </div>
             </div>
           </div>
