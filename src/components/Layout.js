@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import { ref, onValue, get } from 'firebase/database';
@@ -6,10 +6,6 @@ import { rtdb } from '../firebase/config';
 import { cookieManager } from '../utils/cookieManager';
 import FloatingNav from './FloatingNav';
 import Navigation from './Navigation';
-import { useWebRTCContext } from '../context/WebRTCContext';
-import VideoCall from './VideoCall';
-import IncomingCall from './IncomingCall';
-import PermissionPrompt from './PermissionPrompt';
 
 const Layout = ({ children }) => {
   const { user, partner } = useAuth();
@@ -21,47 +17,7 @@ const Layout = ({ children }) => {
   // Don't show navigation on login page
   const showNav = user && !isLoginPage;
 
-  // Global call management
-  const [incomingCall, setIncomingCall] = useState(null);
-  const webRTC = useWebRTCContext();
-
-  // Listen for incoming calls globally
-  useEffect(() => {
-    if (!user?.uid || !partner?.uid) return;
-
-    const callsRef = ref(rtdb, 'calls');
-    const unsubscribe = onValue(callsRef, (snapshot) => {
-      const calls = snapshot.val();
-      
-      if (!calls) {
-        setIncomingCall(null);
-        return;
-      }
-
-      // Find incoming calls for this user
-      let foundIncomingCall = false;
-      Object.entries(calls).forEach(([callId, callData]) => {
-        if (
-          callData.recipient === user.uid &&
-          callData.caller === partner.uid
-        ) {
-          if (callData.status === 'ringing') {
-            setIncomingCall({ callId, ...callData });
-            foundIncomingCall = true;
-          } 
-          else if (callData.status === 'ended' || callData.status === 'rejected') {
-            setIncomingCall(null);
-          }
-        }
-      });
-
-      if (!foundIncomingCall) {
-        setIncomingCall(null);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user?.uid, partner?.uid]);
+  // NOTE: Call management now handled by CallManager component in App.js (using ZegoCloud)
 
   useEffect(() => {
     // Initialize theme from Firebase or localStorage
@@ -175,52 +131,7 @@ const Layout = ({ children }) => {
         {children}
       </main>
 
-      {/* Global Video/Audio Call Component */}
-      {(webRTC.callStatus === 'calling' || webRTC.callStatus === 'active') && (
-        <VideoCall
-          localVideoRef={webRTC.localVideoRef}
-          remoteVideoRef={webRTC.remoteVideoRef}
-          callStatus={webRTC.callStatus}
-          callType={webRTC.callType}
-          isAudioEnabled={webRTC.isAudioEnabled}
-          isVideoEnabled={webRTC.isVideoEnabled}
-          isSpeakerOn={webRTC.isSpeakerOn}
-          callDuration={webRTC.callDuration}
-          connectionQuality={webRTC.connectionQuality}
-          partnerName={partner?.displayName}
-          partnerPhotoURL={partner?.photoURL}
-          onEndCall={webRTC.endCall}
-          onToggleAudio={webRTC.toggleAudio}
-          onToggleVideo={webRTC.toggleVideo}
-          onToggleSpeaker={webRTC.toggleSpeaker}
-        />
-      )}
-
-      {/* Global Incoming Call Notification */}
-      {incomingCall && webRTC.callStatus === 'idle' && (
-        <IncomingCall
-          callerName={incomingCall.callerName}
-          callerPhotoURL={incomingCall.callerPhotoURL}
-          callType={incomingCall.type}
-          onAccept={() => {
-            webRTC.answerCall(incomingCall.callId, incomingCall);
-            setIncomingCall(null);
-          }}
-          onReject={() => {
-            webRTC.rejectCall(incomingCall.callId);
-            setIncomingCall(null);
-          }}
-        />
-      )}
-
-      {/* Permission Prompt */}
-      {webRTC.showPermissionPrompt && (
-        <PermissionPrompt
-          callType={webRTC.pendingCallType}
-          onProceed={() => webRTC.startCall(webRTC.pendingCallType)}
-          onCancel={webRTC.cancelPermissionPrompt}
-        />
-      )}
+      {/* NOTE: All calls now handled by CallManager (ZegoCloud) in App.js */}
     </div>
   );
 };

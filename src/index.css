@@ -3,8 +3,48 @@
 @tailwind utilities;
 
 @layer base {
+  /* Mobile Safe Area Support */
+  :root {
+    --safe-area-inset-top: env(safe-area-inset-top);
+    --safe-area-inset-right: env(safe-area-inset-right);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom);
+    --safe-area-inset-left: env(safe-area-inset-left);
+  }
+
+  html {
+    /* Prevent zoom on input focus (iOS) */
+    -webkit-text-size-adjust: 100%;
+    /* Smooth scrolling */
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-gray-50 text-gray-900;
+    /* Ensure full height on mobile */
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    /* Apply safe area padding */
+    padding-top: var(--safe-area-inset-top);
+    padding-bottom: var(--safe-area-inset-bottom);
+    padding-left: var(--safe-area-inset-left);
+    padding-right: var(--safe-area-inset-right);
+    /* Prevent overscroll bounce on mobile */
+    overscroll-behavior-y: none;
+  }
+
+  /* Prevent zoom on input focus for iOS */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Fix for iOS viewport height with keyboard */
+  @supports (-webkit-touch-callout: none) {
+    html {
+      height: -webkit-fill-available;
+    }
+    body {
+      min-height: -webkit-fill-available;
+    }
   }
 }
 
@@ -57,5 +97,57 @@
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: linear-gradient(to bottom, #2563eb, #7c3aed);
+  }
+
+  /* Splash Screen Animations */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes bounce-slow {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.8s ease-out;
+  }
+
+  .animate-bounce-slow {
+    animation: bounce-slow 2s ease-in-out infinite;
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.6s ease-out;
+  }
+
+  .animate-slide-up-delay {
+    animation: slide-up 0.6s ease-out 0.2s both;
+  }
+
+  .animate-slide-up-delay-2 {
+    animation: slide-up 0.6s ease-out 0.4s both;
   }
 }

@@ -104,8 +104,8 @@
         ".write": "auth != null && ($topicId === 'direct_chat' && root.child('users').child(auth.uid).child('partnerId').exists() || root.child('topics').child($topicId).child('createdBy').val() === auth.uid || root.child('topics').child($topicId).child('partnerId').val() === auth.uid)",
         "$messageId": {
           ".read": "auth != null",
-          ".write": "auth != null && (!data.exists() || data.child('userId').val() === auth.uid)",
-          ".validate": "newData.hasChildren(['userId', 'partnerId', 'timestamp']) && newData.child('userId').val() === auth.uid && (newData.child('text').isString() && newData.child('text').val().length <= 5000)",
+          ".write": "auth != null && (!data.exists() || data.child('userId').val() === auth.uid || data.child('partnerId').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['userId', 'partnerId', 'timestamp']) && (!data.exists() && newData.child('userId').val() === auth.uid || data.exists()) && (newData.child('text').exists() || newData.child('media').exists())",
           "text": {
             ".validate": "newData.isString() && newData.val().length <= 5000"
           },
@@ -120,6 +120,18 @@
           },
           "status": {
             ".validate": "newData.isString()"
+          },
+          "delivered": {
+            ".validate": "newData.isBoolean()"
+          },
+          "deliveredAt": {
+            ".validate": "newData.isNumber() || newData.val() === '.sv'"
+          },
+          "read": {
+            ".validate": "newData.isBoolean()"
+          },
+          "readAt": {
+            ".validate": "newData.isNumber()"
           }
         }
       }
@@ -151,17 +163,35 @@
     },
 
     "calls": {
-      "$callId": {
-        ".read": "auth != null && (data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
-        ".write": "auth != null && (!data.exists() || data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
-        ".validate": "newData.hasChildren(['caller', 'recipient', 'type', 'status'])",
-        "callerCandidates": {
-          ".read": "auth != null",
-          ".write": "auth != null"
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "auth != null",
+        "callerId": {
+          ".validate": "newData.isString()"
         },
-        "recipientCandidates": {
-          ".read": "auth != null",
-          ".write": "auth != null"
+        "calleeId": {
+          ".validate": "newData.isString()"
+        },
+        "callerName": {
+          ".validate": "newData.isString()"
+        },
+        "calleeName": {
+          ".validate": "newData.isString()"
+        },
+        "callType": {
+          ".validate": "newData.val() === 'audio' || newData.val() === 'video'"
+        },
+        "roomID": {
+          ".validate": "newData.isString()"
+        },
+        "status": {
+          ".validate": "newData.val() === 'ringing' || newData.val() === 'calling' || newData.val() === 'active' || newData.val() === 'ended'"
+        },
+        "timestamp": {
+          ".validate": "newData.isNumber()"
+        },
+        "acceptedAt": {
+          ".validate": "newData.isNumber()"
         }
       }
     }

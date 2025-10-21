@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { WebRTCProvider } from './context/WebRTCContext';
 import Layout from './components/Layout';
 import LoadingSpinner from './components/LoadingSpinner';
 import NotificationHandler from './components/NotificationHandler';
+import SplashScreen from './components/SplashScreen';
+import CallManager from './components/CallManager';
 import { Toaster } from 'react-hot-toast';
 
 // Lazy load components including PrivateRoute
@@ -20,6 +22,25 @@ const Results = React.lazy(() => import('./pages/Results'));
 const Settings = React.lazy(() => import('./pages/Settings'));
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  // Check if splash has been shown in this session
+  useEffect(() => {
+    const splashShown = sessionStorage.getItem('splashShown');
+    if (splashShown) {
+      setShowSplash(false);
+    }
+  }, []);
+
+  const handleSplashComplete = () => {
+    sessionStorage.setItem('splashShown', 'true');
+    setShowSplash(false);
+  };
+
+  if (showSplash) {
+    return <SplashScreen onComplete={handleSplashComplete} />;
+  }
+
   return (
     <>
       <Toaster 
@@ -48,6 +69,7 @@ function App() {
         <AuthProvider>
           <WebRTCProvider>
             <NotificationHandler />
+            <CallManager />
             <Layout>
             <React.Suspense fallback={<LoadingSpinner />}>
               <Routes>
