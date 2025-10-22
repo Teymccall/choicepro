@@ -32,10 +32,11 @@ REACT_APP_CLOUDINARY_CLOUD_NAME=dmfoxrq1v
 REACT_APP_CLOUDINARY_UPLOAD_PRESET=choice_app_preset
 ```
 
-### ZegoCloud Configuration (for audio/video calls)
+### Xirsys Configuration (for WebRTC TURN servers - audio/video calls)
 ```
-REACT_APP_ZEGO_APP_ID=903806736
-REACT_APP_ZEGO_SERVER_SECRET=fc435d143bdc4b960915f221edd52a12
+REACT_APP_XIRSYS_TURN_HOST=us-turn4.xirsys.com
+REACT_APP_XIRSYS_USERNAME=Qygb8w_JAXvSFABvD9kfDS2vKIZhsaFJ--cowjIjrhUIpWpoAFzIN-vd-ojkvd6xAAAAAGj4RmN0ZXltY2NhbGw=
+REACT_APP_XIRSYS_CREDENTIAL=d426b328-aef1-11f0-a45f-0242ac140004
 ```
 
 ## Quick Import Method
@@ -69,7 +70,7 @@ After deployment, verify:
 1. Login works (Firebase Auth)
 2. Voice notes can be recorded and sent (Cloudinary)
 3. Push notifications work (Firebase Messaging)
-4. Audio/video calls connect successfully (ZegoCloud)
+4. Audio/video calls connect successfully (WebRTC with Xirsys TURN)
 
 ## Troubleshooting
 

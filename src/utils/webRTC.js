@@ -16,9 +16,18 @@ export class WebRTCConnection {
     this.remoteVideoRef = remoteVideoRef;
     this.onConnectionStateChange = onConnectionStateChange;
     
+    // Initialize Xirsys TURN credentials from environment
+    this.xirsysHost = process.env.REACT_APP_XIRSYS_TURN_HOST || 'us-turn4.xirsys.com';
+    this.xirsysUsername = process.env.REACT_APP_XIRSYS_USERNAME || 'Qygb8w_JAXvSFABvD9kfDS2vKIZhsaFJ--cowjIjrhUIpWpoAFzIN-vd-ojkvd6xAAAAAGj4RmN0ZXltY2NhbGw=';
+    this.xirsysCredential = process.env.REACT_APP_XIRSYS_CREDENTIAL || 'd426b328-aef1-11f0-a45f-0242ac140004';
+    
     // ICE servers configuration: STUN + TURN for NAT traversal
     // STUN: Discovers public IP address
     // TURN: Relay server for strict NATs/firewalls
+    const xirsysHost = process.env.REACT_APP_XIRSYS_TURN_HOST || 'us-turn4.xirsys.com';
+    const xirsysUsername = process.env.REACT_APP_XIRSYS_USERNAME || 'Qygb8w_JAXvSFABvD9kfDS2vKIZhsaFJ--cowjIjrhUIpWpoAFzIN-vd-ojkvd6xAAAAAGj4RmN0ZXltY2NhbGw=';
+    const xirsysCredential = process.env.REACT_APP_XIRSYS_CREDENTIAL || 'd426b328-aef1-11f0-a45f-0242ac140004';
+    
     this.configuration = {
       iceServers: [
         // Google STUN servers (free, reliable)
@@ -26,27 +35,22 @@ export class WebRTCConnection {
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         
-        // TURN server configuration
-        // 🔧 SETUP REQUIRED: Get free TURN credentials from:
-        // - Twilio: https://www.twilio.com/stun-turn (free tier: 10GB/month)
-        // - Xirsys: https://xirsys.com (free tier available)
-        // - Metered: https://www.metered.ca/tools/openrelay/ (open relay)
-        
-        // Xirsys TURN credentials (static channel credentials)
+        // Xirsys TURN server configuration
+        // Free tier: https://xirsys.com
         {
-          urls: 'stun:us-turn4.xirsys.com'
+          urls: `stun:${xirsysHost}`
         },
         {
           urls: [
-            'turn:us-turn4.xirsys.com:80?transport=udp',
-            'turn:us-turn4.xirsys.com:3478?transport=udp',
-            'turn:us-turn4.xirsys.com:80?transport=tcp',
-            'turn:us-turn4.xirsys.com:3478?transport=tcp',
-            'turns:us-turn4.xirsys.com:443?transport=tcp',
-            'turns:us-turn4.xirsys.com:5349?transport=tcp'
+            `turn:${xirsysHost}:80?transport=udp`,
+            `turn:${xirsysHost}:3478?transport=udp`,
+            `turn:${xirsysHost}:80?transport=tcp`,
+            `turn:${xirsysHost}:3478?transport=tcp`,
+            `turns:${xirsysHost}:443?transport=tcp`,
+            `turns:${xirsysHost}:5349?transport=tcp`
           ],
-          username: 'Qygb8w_JAXvSFABvD9kfDS2vKIZhsaFJ--cowjIjrhUIpWpoAFzIN-vd-ojkvd6xAAAAAGj4RmN0ZXltY2NhbGw=',
-          credential: 'd426b328-aef1-11f0-a45f-0242ac140004'
+          username: xirsysUsername,
+          credential: xirsysCredential
         }
       ],
       
