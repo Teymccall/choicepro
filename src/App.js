@@ -7,6 +7,8 @@ import LoadingSpinner from './components/LoadingSpinner';
 import NotificationHandler from './components/NotificationHandler';
 import SplashScreen from './components/SplashScreen';
 import CallManager from './components/CallManager';
+import ConnectionStatus from './components/ConnectionStatus';
+import TestGenerateCode from './components/TestGenerateCode';
 import { Toaster } from 'react-hot-toast';
 
 // Lazy load components including PrivateRoute
@@ -123,6 +125,16 @@ function App() {
                     <React.Suspense fallback={<LoadingSpinner />}>
                       <PrivateRoute>
                         <Settings />
+                      </PrivateRoute>
+                    </React.Suspense>
+                  }
+                />
+                <Route
+                  path="/test-generate-code"
+                  element={
+                    <React.Suspense fallback={<LoadingSpinner />}>
+                      <PrivateRoute>
+                        <TestGenerateCode />
                       </PrivateRoute>
                     </React.Suspense>
                   }

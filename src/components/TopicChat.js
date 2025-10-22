@@ -20,7 +20,10 @@ import {
   EllipsisVerticalIcon,
   ArrowLeftIcon,
   PhoneIcon,
-  VideoCameraIcon
+  VideoCameraIcon,
+  PaperClipIcon,
+  PlayIcon,
+  PauseIcon
 } from '@heroicons/react/24/outline';
 import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
@@ -33,7 +36,6 @@ import ProfilePicture from './ProfilePicture';
 import { getRelationshipLevel, RELATIONSHIP_LEVELS } from '../utils/relationshipLevels';
 import ImageViewer from './ImageViewer';
 import Message from './Message';
-import VoiceRecorder from './VoiceRecorder';
 import { formatTime } from '../utils/dateUtils';
 import { toast } from 'react-hot-toast';
 import { Timestamp } from 'firebase/firestore';
@@ -68,6 +70,7 @@ const TopicChat = ({ topic, onClose }) => {
     return savedDraft || '';
   });
   const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
@@ -89,9 +92,16 @@ const TopicChat = ({ topic, onClose }) => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [recordedAudio, setRecordedAudio] = useState(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
+  const autoSendRecordingRef = useRef(false);
+  const recordingDurationRef = useRef(0);
+  const pendingStopRef = useRef(null);
+  const previewAudioRef = useRef(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
   const [partnerData, setPartnerData] = useState(partner);
   const [messageCount, setMessageCount] = useState(0);
   const [relationshipLevel, setRelationshipLevel] = useState({ level: 'Acquaintance', color: 'text-gray-600 dark:text-gray-400' });
@@ -368,6 +378,38 @@ const TopicChat = ({ topic, onClose }) => {
     };
   }, [user?.uid, topic?.id, partner?.uid]);
 
+  // Real-time partner connection status monitoring
+  useEffect(() => {
+    if (!user?.uid || !partner?.uid) return;
+    
+    console.log('Setting up partner connection listener for:', partner.uid);
+    const partnerConnectionRef = ref(rtdb, `connections/${partner.uid}`);
+    
+    const unsubscribe = onValue(partnerConnectionRef, (snapshot) => {
+      const connectionData = snapshot.exists() ? snapshot.val() : null;
+      const isConnected = connectionData?.status === 'online';
+      
+      console.log('Partner connection update:', {
+        partnerId: partner.uid,
+        connected: isConnected,
+        data: connectionData
+      });
+      
+      // Force UI update by triggering a re-render
+      setPartnerData(prev => ({
+        ...prev,
+        isOnline: isConnected,
+        lastActive: connectionData?.lastActive,
+        connectionStatus: connectionData?.status || 'offline'
+      }));
+    });
+
+    return () => {
+      console.log('Cleaning up partner connection listener');
+      unsubscribe();
+    };
+  }, [user?.uid, partner?.uid]);
+
   const updateTypingStatus = (typing) => {
     if (!user?.uid || !topic?.id || !isOnline) {
       console.log('Cannot update typing status:', { 
@@ -422,6 +464,19 @@ const TopicChat = ({ topic, onClose }) => {
     } else {
       // If message is empty, clear typing status immediately
       updateTypingStatus(false);
+    }
+  };
+
+  // Handle typing indicator
+  const handleTyping = (e) => {
+    handleMessageChange(e);
+  };
+
+  // Handle Enter key to send message
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage(e);
     }
   };
 
@@ -547,6 +602,9 @@ const TopicChat = ({ topic, onClose }) => {
 
   const handleReply = (message) => {
     setReplyingTo(message);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
   };
 
   const startEditing = (message) => {
@@ -564,6 +622,13 @@ const TopicChat = ({ topic, onClose }) => {
 
   const getPairingId = (uid1, uid2) => {
     return [uid1, uid2].sort().join('_');
+  };
+
+  const formatVoiceTime = (seconds = 0) => {
+    const totalSeconds = Math.max(0, Math.round(seconds));
+    const minutes = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleSendMessage = async (e) => {
@@ -627,7 +692,7 @@ const TopicChat = ({ topic, onClose }) => {
         const userRef = ref(rtdb, `users/${user.uid}`);
         const userSnapshot = await get(userRef);
         const userData = userSnapshot.val() || {};
-        const currentPhotoURL = userData.photoURL || user.photoURL;
+        const currentPhotoURL = userData.photoURL || user.photoURL || '';
 
         const messageData = {
           text: messageToSend || '', // Sanitized text
@@ -649,8 +714,8 @@ const TopicChat = ({ topic, onClose }) => {
             id: replyingToRef.id,
             text: replyingToRef.text || '',
             userId: replyingToRef.userId,
-            userDisplayName: replyingToRef.userDisplayName,
-            userPhotoURL: replyingToRef.userPhotoURL // Include photo URL in reply reference
+            userDisplayName: replyingToRef.userDisplayName || replyingToRef.userName || 'User',
+            userPhotoURL: replyingToRef.userPhotoURL || '' // Include photo URL in reply reference
           };
           
           // Only add media if it exists
@@ -887,15 +952,40 @@ const TopicChat = ({ topic, onClose }) => {
 
   const startRecording = async () => {
     try {
+      // Haptic feedback on recording start
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Check for supported MIME types
-      const mimeType = 'audio/webm;codecs=opus';
-      const options = { mimeType };
-      
-      const mediaRecorder = new MediaRecorder(stream, options);
-      mediaRecorderRef.current = mediaRecorder;
+      // Reset previous recording state
+      setRecordedAudio(null);
       audioChunksRef.current = [];
+      setRecordingDuration(0);
+      recordingDurationRef.current = 0;
+      setIsRecording(true);
+      autoSendRecordingRef.current = false;
+      pendingStopRef.current = null;
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current.currentTime = 0;
+        previewAudioRef.current.src = '';
+      }
+      setPreviewPlaying(false);
+      setPreviewCurrentTime(0);
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.onstart = () => {
+        setIsRecording(true);
+        if (pendingStopRef.current) {
+          const stopOptions = pendingStopRef.current;
+          pendingStopRef.current = null;
+          stopRecording(stopOptions);
+        }
+      };
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -904,89 +994,243 @@ const TopicChat = ({ topic, onClose }) => {
       };
 
       mediaRecorder.onstop = async () => {
-        try {
-          setUploadingMedia(true);
-          
-          // Create audio blob
-          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-          const file = new File([audioBlob], 'voice-message.webm', { type: mimeType });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const duration = recordingDurationRef.current;
+        const shouldAutoSend = autoSendRecordingRef.current;
 
-          // Upload to Cloudinary
-          const mediaData = await uploadMedia(file);
-          
-          // Create message with audio
-          const chatRef = ref(rtdb, `topicChats/${topic.id}`);
-          const messageData = {
-            userId: user.uid,
-            partnerId: partner.uid,
-            userName: user.displayName || 'User',
-            timestamp: serverTimestamp(),
-            delivered: false,
-            read: false,
-            media: {
-              url: mediaData.url,
-              type: 'audio/webm',
-              name: 'Voice message',
-              publicId: mediaData.publicId,
-              resourceType: 'video', // Cloudinary treats audio as video resource
-              format: 'webm',
-              duration: recordingDuration
-            }
-          };
-
-          // Send message
-          const newMessageRef = await push(chatRef, messageData);
-
-          if (isOnline) {
-            update(ref(rtdb, `topicChats/${topic.id}/${newMessageRef.key}`), {
-              delivered: true
-            });
-          }
-        } catch (error) {
-          console.error('Error sending voice message:', error);
-          toast.error('Failed to send voice message. Please try again.');
-          setTimeout(() => toast.dismiss(), 3000);
-        } finally {
-          setUploadingMedia(false);
-          // Clean up
+        setIsRecording(false);
+        clearInterval(recordingTimerRef.current);
         stream.getTracks().forEach(track => track.stop());
-          setIsRecording(false);
-          setRecordingDuration(0);
-          clearInterval(recordingTimerRef.current);
+        autoSendRecordingRef.current = false;
+
+        if (shouldAutoSend) {
+          try {
+            await uploadAndSendAudio(audioBlob, duration);
+          } catch (error) {
+            console.error('Auto-send voice message failed:', error);
+            toast.error('Failed to send voice note');
+          } finally {
+            setRecordingDuration(0);
+            recordingDurationRef.current = 0;
+          }
+          return;
         }
+
+        setRecordedAudio({
+          blob: audioBlob,
+          url: URL.createObjectURL(audioBlob),
+          duration
+        });
       };
 
-      // Start recording with smaller timeslices for better data collection
-      mediaRecorder.start(100); // Record in 100ms chunks
-      setIsRecording(true);
-      
-      // Start duration timer
+      mediaRecorder.start();
       recordingTimerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
+        setRecordingDuration(prev => {
+          const next = prev + 1;
+          recordingDurationRef.current = next;
+          return next;
+        });
       }, 1000);
-
     } catch (error) {
       console.error('Error starting recording:', error);
-      toast.error('Could not access microphone. Please check your permissions.');
-      setTimeout(() => toast.dismiss(), 3000);
+      toast.error('Could not access microphone. Please check permissions.');
+      setIsRecording(false);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, [isRecording]);
+
+  const stopRecording = ({ autoSend = false } = {}) => {
+    const recorder = mediaRecorderRef.current;
+
+    if (recorder && recorder.state === 'recording') {
+      autoSendRecordingRef.current = autoSend;
+      recorder.stop();
       clearInterval(recordingTimerRef.current);
+      pendingStopRef.current = null;
+    } else if (!recorder || recorder.state === 'inactive') {
+      pendingStopRef.current = { autoSend };
     }
   };
 
   const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      clearInterval(recordingTimerRef.current);
-      setIsRecording(false);
-      setRecordingDuration(0);
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === 'recording') {
+        autoSendRecordingRef.current = false;
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+    }
+    if (recordedAudio?.url) {
+      URL.revokeObjectURL(recordedAudio.url);
+    }
+    clearInterval(recordingTimerRef.current);
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordedAudio(null);
+    setRecordingDuration(0);
+    recordingDurationRef.current = 0;
+    pendingStopRef.current = null;
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+    setPreviewPlaying(false);
+    setPreviewCurrentTime(0);
+  };
+
+  const uploadAndSendAudio = async (audioBlob, duration) => {
+    try {
+      setUploadingMedia(true);
+      console.log('Starting audio upload...', {
+        size: audioBlob?.size,
+        type: audioBlob?.type,
+        duration: duration ?? recordingDurationRef.current
+      });
+      
+      const file = new File([audioBlob], 'voice-message.webm', { 
+        type: 'audio/webm',
+        lastModified: Date.now()
+      });
+      
+      console.log('File created:', file);
+      
+      // Upload to Cloudinary
+      console.log('Uploading to Cloudinary...');
+      const mediaData = await uploadMedia(file);
+      console.log('Upload successful:', mediaData);
+      
+      // Create message with audio
+      const chatRef = ref(rtdb, `topicChats/${topic.id}`);
+      const messageData = {
+        userId: user.uid,
+        partnerId: partner.uid,
+        userName: user.displayName || 'User',
+        timestamp: serverTimestamp(),
+        delivered: false,
+        read: false,
+        media: {
+          url: mediaData.url,
+          type: 'audio/webm',
+          name: 'Voice message',
+          publicId: mediaData.publicId,
+          resourceType: mediaData.resourceType || 'video',
+          format: mediaData.format || 'webm',
+          duration: duration ?? recordingDurationRef.current
+        }
+      };
+
+      console.log('Sending message to Firebase:', messageData);
+      
+      // Send message
+      const newMessageRef = await push(chatRef, messageData);
+      console.log('Message sent successfully:', newMessageRef.key);
+
+      if (isOnline) {
+        await update(ref(rtdb, `topicChats/${topic.id}/${newMessageRef.key}`), {
+          delivered: true
+        });
+      }
+
+      toast.success('Voice message sent!');
+      setTimeout(() => toast.dismiss(), 2000);
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack
+      });
+      toast.error(`Failed to send: ${error.message}`);
+      setTimeout(() => toast.dismiss(), 3000);
+    } finally {
+      setUploadingMedia(false);
     }
   };
+
+  const sendRecordedAudio = async () => {
+    if (!recordedAudio) {
+      console.error('No recorded audio to send');
+      return;
+    }
+
+    await uploadAndSendAudio(recordedAudio.blob, recordedAudio.duration ?? recordingDurationRef.current);
+
+    if (recordedAudio.url) {
+      URL.revokeObjectURL(recordedAudio.url);
+    }
+    setRecordedAudio(null);
+    setRecordingDuration(0);
+    recordingDurationRef.current = 0;
+    clearInterval(recordingTimerRef.current);
+  };
+
+  const deleteRecordedAudio = () => {
+    if (recordedAudio?.url) {
+      URL.revokeObjectURL(recordedAudio.url);
+    }
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+    }
+    setRecordedAudio(null);
+    setRecordingDuration(0);
+    setPreviewPlaying(false);
+    setPreviewCurrentTime(0);
+    clearInterval(recordingTimerRef.current);
+    recordingDurationRef.current = 0;
+  };
+
+  const togglePreviewPlayback = () => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+
+    if (previewPlaying) {
+      audio.pause();
+      setPreviewPlaying(false);
+    } else {
+      audio.play();
+      setPreviewPlaying(true);
+    }
+  };
+
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      setPreviewCurrentTime(audio.currentTime);
+    };
+
+    const handleEnded = () => {
+      setPreviewPlaying(false);
+      setPreviewCurrentTime(0);
+    };
+
+    const handleLoadedMetadata = () => {
+      // Audio is ready to play
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    };
+  }, []);
 
   // Add cleanup for recording when component unmounts
   useEffect(() => {
@@ -1266,373 +1510,529 @@ const TopicChat = ({ topic, onClose }) => {
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const previewDuration = recordedAudio?.duration ?? previewAudioRef.current?.duration ?? 0;
+  const previewProgress = previewDuration > 0 ? Math.min(1, previewCurrentTime / previewDuration) : 0;
+
   if (loading) {
     return <div className="text-center py-4">Loading messages...</div>;
   }
 
   return (
-    <div className="relative h-screen w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black overflow-hidden">
-      {/* Fixed Chat Header - Glassmorphism */}
-      <div className="flex-shrink-0 fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg">
+    <div className="flex flex-col h-dvh w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
+      {/* Chat Header */}
+      <div className="flex-shrink-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg">
         {/* Top Row - Partner Info */}
-        <div className="flex items-center px-4 py-3">
+        <div className="flex items-center px-3 sm:px-4 py-2 sm:py-3 gap-2 sm:gap-3">
           <button
             onClick={onClose}
-            className="md:hidden p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full mr-2 transition-all"
+            className="md:hidden p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
           >
             <ArrowLeftIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
           </button>
-          
-          <div className="flex items-center flex-1 min-w-0">
-            <div className="flex-shrink-0 mr-3">
-              <div className="relative">
-                <ProfilePicture 
-                  userId={partner?.uid} 
-                  photoURL={partner?.photoURL} 
-                  displayName={partner?.displayName}
-                  size="md" 
-                />
-                {isOnline && (
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
-                )}
-              </div>
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-base font-bold text-gray-900 dark:text-white truncate">
-                {partner ? partner.displayName : 'Loading...'}
-              </h2>
-              <div className="flex items-center gap-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {isOnline ? 'Online' : 'Offline'}
-                </p>
-                <span className="text-xs text-gray-400">•</span>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {messageCount} {messageCount === 1 ? 'message' : 'messages'}
-                </p>
-              </div>
-            </div>
+      
+      <div className="flex items-center flex-1 min-w-0">
+        <div className="flex-shrink-0 mr-2 sm:mr-3">
+          <div className="relative">
+            <ProfilePicture 
+              userId={partner?.uid} 
+              photoURL={partner?.photoURL} 
+              displayName={partner?.displayName}
+              size="md" 
+            />
+            {partnerData?.isOnline && (
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
+            )}
           </div>
-          
-          {/* Call Buttons */}
-          <div className="flex items-center space-x-2">
-            {/* Audio Call */}
-            <button
-              onClick={() => webRTC.requestCall('audio')}
-              className="p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full transition-all group"
-              title="Audio Call"
-            >
-              <PhoneIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400" />
-            </button>
-
-            {/* Video Call */}
-            <button
-              onClick={() => webRTC.requestCall('video')}
-              className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full transition-all group"
-              title="Video Call"
-            >
-              <VideoCameraIcon className="h-5 w-5 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-            </button>
-
-            {/* Options Menu */}
-            <button
-              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-              className="p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
-            >
-              <EllipsisVerticalIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-            </button>
-          </div>
-
-          {/* Options Menu - Glassmorphism */}
-          {showOptionsMenu && (
-            <div 
-              ref={optionsMenuRef}
-              className="absolute right-4 top-14 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-2xl shadow-2xl py-2 min-w-[200px] z-50 border border-gray-200/50 dark:border-gray-700/50"
-            >
-              <button
-                onClick={() => {
-                  setIsEditing(true);
-                  setShowOptionsMenu(false);
-                }}
-                className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 flex items-center transition-all"
-              >
-                <PencilIcon className="h-4 w-4 mr-3" />
-                Edit Topic
-              </button>
-              <button
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to delete this topic? This action cannot be undone.')) {
-                    handleDeleteTopic();
-                  }
-                  setShowOptionsMenu(false);
-                }}
-                className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50/50 dark:hover:bg-red-900/20 flex items-center transition-all"
-              >
-                <TrashIcon className="h-4 w-4 mr-3" />
-                Delete Topic
-              </button>
-            </div>
-          )}
         </div>
-        
-        {/* Topic Title Banner - Glassmorphism */}
-        <div className="px-4 py-3 bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 backdrop-blur-sm border-t border-gray-200/30 dark:border-gray-700/30">
-          <div className="flex items-center gap-2">
-            <ChatBubbleLeftRightIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-            <p className="text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
-              {topic?.question || 'Loading topic...'}
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white truncate">
+            {partner ? partner.displayName : 'Loading...'}
+          </h2>
+          <div className="flex items-center gap-1 sm:gap-2">
+            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+              {partnerData?.isOnline ? 'Online' : 'Offline'}
+            </p>
+            <span className="text-[10px] sm:text-xs text-gray-400 hidden sm:inline">•</span>
+            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+              {messageCount} {messageCount === 1 ? 'message' : 'messages'}
             </p>
           </div>
         </div>
       </div>
       
-      {/* Messages Container - WhatsApp/Telegram Style */}
-      <div 
-        ref={messagesContainerRef}
-        className="chat-messages-container screenshot-protected absolute left-0 right-0 overflow-y-auto bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
-        style={{ 
-          top: '130px',
-          bottom: '70px', // Just input footer, no bottom nav
-          backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
-          backgroundAttachment: "fixed",
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
-        }}
-      >
-        <div className="px-4 py-4 space-y-2 max-w-3xl mx-auto w-full">
-          {messages.map((message) => (
-            <Message
-              key={message.id}
-              message={message}
-              isOwnMessage={message.userId === user.uid}
-              user={user}
-              partner={partner}
-              topicId={topic.id}
-              onReply={handleReply}
-              onImageClick={setViewingImage}
-              messageRefs={messageRefs}
-              onDelete={handleDeleteMessage}
-              onEdit={handleEditMessage}
-              onStartEdit={startEditing}
-            />
-          ))}
-          {partnerTyping && (
-            <div className="flex items-center space-x-2 text-gray-500 pl-2">
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <span className="text-sm">{partnerData?.displayName} is typing...</span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+      {/* Call Buttons - Visible on all screens */}
+      <div className="flex items-center space-x-1 sm:space-x-2">
+        {/* Audio Call */}
+        <button
+          onClick={async () => {
+            console.log('Audio call button clicked');
+            if (!webRTC) {
+              console.error('WebRTC context not available');
+              toast.error('Call system not initialized');
+              return;
+            }
+            if (!partner) {
+              console.error('No partner connected');
+              toast.error('No partner connected');
+              return;
+            }
+            try {
+              console.log('Starting audio call...');
+              await webRTC.startCall('audio');
+            } catch (error) {
+              console.error('Error starting audio call:', error);
+              toast.error('Failed to start call: ' + error.message);
+            }
+          }}
+          className="flex p-1.5 sm:p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full transition-all group"
+          title="Audio Call"
+        >
+          <PhoneIcon className="h-5 w-5 sm:h-5 sm:w-5 text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400" />
+        </button>
+
+        {/* Video Call */}
+        <button
+          onClick={async () => {
+            console.log('Video call button clicked');
+            if (!webRTC) {
+              console.error('WebRTC context not available');
+              toast.error('Call system not initialized');
+              return;
+            }
+            if (!partner) {
+              console.error('No partner connected');
+              toast.error('No partner connected');
+              return;
+            }
+            try {
+              console.log('Starting video call...');
+              await webRTC.startCall('video');
+            } catch (error) {
+              console.error('Error starting call:', error);
+              toast.error('Failed to start call');
+            }
+          }}
+          className="flex p-1.5 sm:p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full transition-all group"
+          title="Video Call"
+        >
+          <VideoCameraIcon className="h-5 w-5 sm:h-5 sm:w-5 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+        </button>
+
+        {/* Options Menu - Always visible */}
+        <button
+          onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+          className="p-1.5 sm:p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
+        >
+          <EllipsisVerticalIcon className="h-4 w-4 sm:h-5 sm:w-5 text-gray-700 dark:text-gray-300" />
+        </button>
       </div>
 
-      {/* Fixed Input Container */}
-      <div className="bg-white dark:bg-gray-800 fixed bottom-0 left-0 right-0 z-50 shadow-lg">
-        {(replyingTo || selectedFile) && (
-          <div className="px-4 py-2 max-w-3xl mx-auto space-y-2 border-t border-gray-200 dark:border-gray-700">
-            {replyingTo && (
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 flex items-start">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Replying to {replyingTo.userId === user.uid ? 'yourself' : partnerData?.displayName}
-                  </p>
-                  <p className="text-sm truncate text-gray-700 dark:text-gray-300">
-                    {replyingTo.text || (replyingTo.media ? 'Media message' : '')}
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setReplyingTo(null)} 
-                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
-                >
-                  <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                </button>
-              </div>
-            )}
-            
-            {selectedFile && (
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
-                <div className="flex items-center space-x-3">
-                  <div className="relative w-14 h-14 flex-shrink-0 rounded-md overflow-hidden">
-                    <img
-                      src={previewUrl}
-                      alt="Selected"
-                      className="w-full h-full object-cover"
-                    />
-                    {uploadingMedia && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                      {uploadingMedia ? 'Uploading...' : 'Photo'}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {uploadingMedia ? 'Please wait...' : 'Ready to send'}
-                    </p>
-                  </div>
-                  {!uploadingMedia && (
-                    <button
-                      onClick={() => {
-                        setSelectedFile(null);
-                        setPreviewUrl(null);
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = '';
-                        }
-                      }}
-                      className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
-                    >
-                      <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+      {/* Options Menu - Glassmorphism - Mobile Optimized */}
+      {showOptionsMenu && (
+        <div 
+          ref={optionsMenuRef}
+          className="absolute right-2 sm:right-4 top-12 sm:top-14 bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-2xl shadow-2xl py-2 min-w-[180px] sm:min-w-[200px] z-50 border border-gray-200/50 dark:border-gray-700/50"
+        >
+          <button
+            onClick={() => {
+              setIsEditing(true);
+              setShowOptionsMenu(false);
+            }}
+            className="w-full px-4 py-3 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 flex items-center transition-all"
+          >
+            <PencilIcon className="h-4 w-4 mr-3" />
+            Edit Topic
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to delete this topic? This action cannot be undone.')) {
+                handleDeleteTopic();
+              }
+              setShowOptionsMenu(false);
+            }}
+            className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50/50 dark:hover:bg-red-900/20 flex items-center transition-all"
+          >
+            <TrashIcon className="h-4 w-4 mr-3" />
+            Delete Topic
+          </button>
+        </div>
+      )}
+    </div>
+    
+    {/* Topic Title Banner - Glassmorphism - Fully Responsive */}
+    <div className="px-3 sm:px-4 py-1.5 sm:py-2 md:py-3 bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 backdrop-blur-sm border-t border-gray-200/30 dark:border-gray-700/30">
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        <ChatBubbleLeftRightIcon className="h-3.5 sm:h-4 md:h-5 w-3.5 sm:w-4 md:w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+        <p className="text-[11px] sm:text-xs md:text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
+          {topic?.question || 'Loading topic...'}
+        </p>
+      </div>
+    </div>
+  </div>
+  
+  {/* Messages Container - Flexbox - Mobile Optimized */}
+  <div 
+    ref={messagesContainerRef}
+    className="flex-1 overflow-y-auto screenshot-protected bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
+    style={{ 
+      backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
+        backgroundAttachment: "fixed",
+        scrollbarWidth: 'thin',
+        scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
+      }}
+    >
+      <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 space-y-1.5 sm:space-y-2 max-w-3xl mx-auto w-full">
+        {messages.map((message) => (
+          <Message
+            key={message.id}
+            message={message}
+            isOwnMessage={message.userId === user.uid}
+            user={user}
+            partner={partner}
+            topicId={topic.id}
+            onReply={handleReply}
+            onImageClick={setViewingImage}
+            messageRefs={messageRefs}
+            onDelete={handleDeleteMessage}
+            onEdit={handleEditMessage}
+            onStartEdit={startEditing}
+          />
+        ))}
+        {partnerTyping && (
+          <div className="flex items-center space-x-2 text-gray-500 pl-2">
+            <div className="typing-indicator">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <span className="text-sm">{partnerData?.displayName} is typing...</span>
           </div>
         )}
+        <div ref={messagesEndRef} />
+      </div>
+    </div>
 
-        {/* Message Input Area - Glassmorphism */}
-        <div className="px-4 py-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-t border-gray-200/50 dark:border-gray-700/50">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2">
-              {/* Emoji Button */}
-              <button
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="flex-shrink-0 p-3 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-2xl transition-all emoji-button"
-              >
-                <FaceSmileIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
-              </button>
-              
-              {/* Input Container */}
-              <div className="flex-1 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-3xl border-2 border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md transition-all">
-                <textarea
-                  ref={inputRef}
-                  value={newMessage}
-                  onChange={handleMessageChange}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                    if (e.key === 'Escape') {
-                      if (editingMessage) {
-                        cancelEditing();
-                      } else if (replyingTo) {
-                        setReplyingTo(null);
-                      }
-                    }
-                  }}
-                  placeholder={editingMessage ? '✏️ Edit message...' : '💬 Type a message...'}
-                  className="w-full bg-transparent border-none focus:ring-0 dark:text-white resize-none py-3 px-4 max-h-32 placeholder-gray-400 dark:placeholder-gray-500 text-base"
-                  style={{ minHeight: '48px' }}
-                  rows={1}
-                />
+    {/* Input Container - Flexbox - Mobile Optimized */}
+    <div className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg border-t border-gray-200 dark:border-gray-700">
+      {(replyingTo || selectedFile || recordedAudio) && (
+        <div className="px-3 sm:px-4 py-2 sm:py-3 max-w-3xl mx-auto w-full space-y-2 sm:space-y-3">
+          {replyingTo && (
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                  Replying to {replyingTo.userId === user.uid ? 'yourself' : partnerData?.displayName}
+                </p>
+                <p className="text-xs sm:text-sm truncate text-gray-700 dark:text-gray-300">
+                  {replyingTo.text || (replyingTo.media ? 'Media message' : '')}
+                </p>
               </div>
+              <button 
+                onClick={() => setReplyingTo(null)} 
+                className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors flex-shrink-0"
+              >
+                <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+              </button>
+            </div>
+          )}
+
+          {/* Recorded Audio Preview */}
+          {recordedAudio && !isRecording && (
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-3 flex items-center gap-3 shadow-lg">
+              <audio ref={previewAudioRef} src={recordedAudio.url} preload="metadata" />
               
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2">
-                {/* Media Button */}
-                <div className="relative">
-                  <button
-                    onClick={handleMediaClick}
-                    className="flex-shrink-0 p-3 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-2xl transition-all"
-                    data-media-button="true"
-                  >
-                    <PhotoIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
-                  </button>
-                {showMediaMenu && (
-                  <>
-                    <div 
-                      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-200"
-                      onClick={() => setShowMediaMenu(false)}
-                    />
-                    <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-t-2xl shadow-xl z-50 border-t border-gray-200/50 dark:border-gray-700/50">
-                      {/* Handle bar */}
-                      <div className="flex justify-center pt-2">
-                        <div className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
-                      </div>
+              <button
+                onClick={deleteRecordedAudio}
+                className="p-2 hover:bg-white/20 rounded-full transition-all flex-shrink-0"
+                title="Discard recording"
+              >
+                <TrashIcon className="h-5 w-5 text-white" />
+              </button>
 
-                      {/* Header */}
-                      <div className="flex items-center justify-between px-4 pt-3 pb-4">
-                        <h3 className="text-base font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
-                          Share Media
-                        </h3>
-                        <button 
-                          onClick={() => setShowMediaMenu(false)}
-                          className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-                        >
-                          <XMarkIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
-                        </button>
-                      </div>
-                      
-                      {/* Compact Grid */}
-                      <div className="grid grid-cols-2 gap-2 px-4 pb-3">
-                        {/* Gallery */}
-                        <button
-                          onClick={() => {
-                            fileInputRef.current?.click();
-                            setShowMediaMenu(false);
-                          }}
-                          className="flex flex-col items-center py-3 px-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100/80 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200/50 dark:border-blue-700/30 hover:scale-105 active:scale-95 transition-transform"
-                        >
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center shadow-sm">
-                            <PhotoIcon className="h-5 w-5 text-white" strokeWidth={2} />
-                          </div>
-                          <span className="mt-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300">Gallery</span>
-                          <span className="text-[9px] text-gray-500 dark:text-gray-500">Choose photo</span>
-                        </button>
-
-                        {/* Camera */}
-                        <button
-                          onClick={() => {
-                            handleCameraClick();
-                            setShowMediaMenu(false);
-                          }}
-                          className="flex flex-col items-center py-3 px-2 rounded-lg bg-gradient-to-br from-purple-50 to-purple-100/80 dark:from-purple-900/20 dark:to-purple-800/20 border border-purple-200/50 dark:border-purple-700/30 hover:scale-105 active:scale-95 transition-transform"
-                        >
-                          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center shadow-sm">
-                            <CameraIcon className="h-5 w-5 text-white" strokeWidth={2} />
-                          </div>
-                          <span className="mt-1.5 text-[11px] font-medium text-gray-700 dark:text-gray-300">Camera</span>
-                          <span className="text-[9px] text-gray-500 dark:text-gray-500">Take photo</span>
-                        </button>
-                      </div>
-
-                      {/* Cancel */}
-                      <button
-                        onClick={() => setShowMediaMenu(false)}
-                        className="w-full py-3 text-sm font-medium text-red-600 dark:text-red-400 border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                )}
-                </div>
-                
-                {/* Send Button or Voice Recorder */}
-                {(newMessage.trim() || selectedFile) ? (
-                  <button
-                    onClick={handleSendMessage}
-                    className="flex-shrink-0 p-3 rounded-2xl transition-all duration-200 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-xl hover:scale-105"
-                  >
-                    <PaperAirplaneIcon className="h-6 w-6" />
-                  </button>
+              <button
+                onClick={togglePreviewPlayback}
+                className="p-2 bg-white/20 hover:bg-white/30 rounded-full transition-all flex-shrink-0"
+                title={previewPlaying ? 'Pause' : 'Play'}
+              >
+                {previewPlaying ? (
+                  <PauseIcon className="h-5 w-5 text-white" />
                 ) : (
-                  <VoiceRecorder 
-                    onSend={handleVoiceNote}
-                    onCancel={() => console.log('Voice recording canceled')}
+                  <PlayIcon className="h-5 w-5 text-white" />
+                )}
+              </button>
+
+              <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 h-8 flex items-center gap-0.5">
+                  {[...Array(20)].map((_, i) => {
+                    const barProgress = (i / 20);
+                    const isActive = previewProgress >= barProgress;
+                    const height = 8 + Math.sin(i * 0.5) * 12;
+                    
+                    return (
+                      <div
+                        key={i}
+                        className={`flex-1 rounded-full transition-all duration-100 ${
+                          isActive ? 'bg-white' : 'bg-white/40'
+                        }`}
+                        style={{ height: `${height}px` }}
+                      />
+                    );
+                  })}
+                </div>
+                <span className="text-xs text-white font-mono whitespace-nowrap">
+                  {formatVoiceTime(previewPlaying ? previewCurrentTime : previewDuration)}
+                </span>
+              </div>
+
+              <button
+                onClick={sendRecordedAudio}
+                disabled={uploadingMedia}
+                className="p-3 bg-white/20 hover:bg-white/30 disabled:opacity-50 rounded-full transition-all flex-shrink-0"
+                title="Send voice message"
+              >
+                <PaperAirplaneIcon className="h-5 w-5 text-white" />
+              </button>
+            </div>
+          )}
+          
+          {selectedFile && (
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+              <div className="flex items-center gap-2">
+                <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 rounded-md overflow-hidden">
+                  <img
+                    src={previewUrl}
+                    alt="Selected"
+                    className="w-full h-full object-cover"
                   />
+                  {uploadingMedia && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {uploadingMedia ? 'Uploading...' : 'Photo'}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {uploadingMedia ? 'Please wait...' : 'Ready to send'}
+                  </p>
+                </div>
+                {!uploadingMedia && (
+                  <button
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setPreviewUrl(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
+                    }}
+                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
+                  >
+                    <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                  </button>
                 )}
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+        {/* Message Input Area - Professional WhatsApp Style */}
+        <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 max-w-3xl mx-auto w-full">
+          
+          {/* Recording Active Bar */}
+          {isRecording && (
+            <div className="bg-gradient-to-r from-red-600 to-red-500 rounded-2xl p-3 sm:p-4 flex items-center gap-2 sm:gap-3 shadow-2xl">
+              <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                <div className="relative">
+                  <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                  <div className="absolute inset-0 w-3 h-3 bg-white rounded-full animate-ping opacity-75"></div>
+                </div>
+                
+                <div className="flex-1 flex items-center gap-1 min-w-0">
+                  {[...Array(15)].map((_, i) => {
+                    const baseHeight = 4 + Math.sin(i * 0.7) * 8;
+                    const delay = i * 80;
+                    
+                    return (
+                      <div
+                        key={i}
+                        className="flex-1 bg-white/90 rounded-full animate-recording-wave"
+                        style={{ 
+                          height: `${baseHeight}px`,
+                          minHeight: '4px',
+                          animationDelay: `${delay}ms`
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                
+                <span className="text-sm sm:text-base text-white font-mono font-bold whitespace-nowrap">
+                  {formatVoiceTime(recordingDuration)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={cancelRecording}
+                  className="p-2 hover:bg-white/20 rounded-full transition-all flex-shrink-0"
+                  title="Cancel"
+                >
+                  <XMarkIcon className="h-5 w-5 text-white" />
+                </button>
+                
+                <button
+                  onClick={() => stopRecording({ autoSend: false })}
+                  disabled={uploadingMedia}
+                  className="p-2.5 bg-white/20 hover:bg-white/30 disabled:opacity-50 rounded-full transition-all flex-shrink-0"
+                  title="Done"
+                >
+                  <CheckIcon className="h-5 w-5 text-white" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Main Input Bar */}
+          <div className="flex items-end gap-2">
+            {/* Emoji Button - Left Side */}
+            <button
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
+              title="Add emoji"
+            >
+              <FaceSmileIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+            </button>
+            
+            {/* Input Field - Center */}
+            <div className="flex-1 flex items-end gap-2 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-2 border-2 border-transparent focus-within:border-blue-500 dark:focus-within:border-purple-500 transition-colors">
+              <textarea
+                ref={inputRef}
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onInput={handleTyping}
+                placeholder="Type a message..."
+                className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 resize-none max-h-20 text-sm leading-tight text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+                rows="1"
+                style={{ fontSize: '16px' }}
+              />
+            </div>
+
+            {/* Right Side Buttons - Conditional */}
+            {newMessage.trim() || selectedFile ? (
+              /* Send Button - Shows when typing */
+              <button
+                onClick={handleSendMessage}
+                disabled={isLoading || uploadingMedia}
+                className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full transition-all flex-shrink-0 shadow-lg"
+                title="Send message"
+              >
+                <PaperAirplaneIcon className="h-5 w-5" />
+              </button>
+            ) : (
+              /* Media & Mic Buttons - Shows when not typing */
+              <>
+                <button
+                  onClick={() => setShowMediaMenu(!showMediaMenu)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
+                  title="Attach media"
+                >
+                  <PhotoIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                </button>
+
+                <button
+                  onMouseDown={startRecording}
+                  onMouseUp={() => stopRecording()}
+                  onMouseLeave={() => isRecording && cancelRecording()}
+                  onTouchStart={startRecording}
+                  onTouchEnd={() => stopRecording()}
+                  onTouchCancel={cancelRecording}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`p-2.5 rounded-full transition-all flex-shrink-0 select-none ${
+                    isRecording
+                      ? 'bg-red-500 hover:bg-red-600 text-white scale-110'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                  }`}
+                  title="Hold to record voice"
+                >
+                  <MicrophoneIcon className="h-5 w-5" />
+                </button>
+              </>
+            )}
           </div>
         </div>
-      </div>
+
+        {/* Media Menu - Mobile Optimized */}
+        {showMediaMenu && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-200"
+              onClick={() => setShowMediaMenu(false)}
+            />
+            <div className="fixed bottom-0 left-0 right-0 sm:left-1/2 sm:-translate-x-1/2 w-full sm:max-w-md bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-t-2xl sm:rounded-2xl shadow-xl z-50 border-t sm:border border-gray-200/50 dark:border-gray-700/50 mx-auto">
+              {/* Handle bar */}
+              <div className="flex justify-center pt-2 sm:pt-3">
+                <div className="w-12 h-1 sm:h-1.5 bg-gray-300 dark:bg-gray-600 rounded-full"></div>
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 sm:px-4 pt-2 sm:pt-3 pb-3 sm:pb-4">
+                <h3 className="text-sm sm:text-base font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400">
+                  Share Media
+                </h3>
+                <button 
+                  onClick={() => setShowMediaMenu(false)}
+                  className="p-1 sm:p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                >
+                  <XMarkIcon className="h-5 w-5 sm:h-5 sm:w-5 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+              
+              {/* Responsive Grid */}
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 px-3 sm:px-4 pb-3 sm:pb-4">
+                {/* Gallery */}
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setShowMediaMenu(false);
+                  }}
+                  className="flex flex-col items-center py-4 sm:py-5 px-2 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100/80 dark:from-blue-900/20 dark:to-blue-800/20 border border-blue-200/50 dark:border-blue-700/30 hover:scale-105 active:scale-95 transition-transform"
+                >
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                    <PhotoIcon className="h-6 w-6 sm:h-7 sm:w-7 text-white" strokeWidth={2} />
+                  </div>
+                  <span className="mt-2 text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Gallery</span>
+                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Choose photo</span>
+                </button>
+
+                {/* Camera */}
+                <button
+                  onClick={() => {
+                    handleCameraClick();
+                    setShowMediaMenu(false);
+                  }}
+                  className="flex flex-col items-center py-4 sm:py-5 px-2 rounded-xl sm:rounded-2xl bg-gradient-to-br from-purple-50 to-purple-100/80 dark:from-purple-900/20 dark:to-purple-800/20 border border-purple-200/50 dark:border-purple-700/30 hover:scale-105 active:scale-95 transition-transform"
+                >
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
+                    <CameraIcon className="h-6 w-6 sm:h-7 sm:w-7 text-white" strokeWidth={2} />
+                  </div>
+                  <span className="mt-2 text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Camera</span>
+                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Take photo</span>
+                </button>
+              </div>
+
+              {/* Cancel */}
+              <button
+                onClick={() => setShowMediaMenu(false)}
+                className="w-full py-3 sm:py-3.5 text-sm sm:text-base font-semibold text-red-600 dark:text-red-400 border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
 
       {/* Hidden file inputs */}
       <input
@@ -1831,14 +2231,34 @@ const TopicChat = ({ topic, onClose }) => {
           }
         }
 
+        /* Recording wave animation */
+        @keyframes recording-wave {
+          0%, 100% {
+            opacity: 0.8;
+            transform: scaleY(0.8);
+          }
+          50% {
+            opacity: 1;
+            transform: scaleY(1.2);
+          }
+        }
+
+        .animate-recording-wave {
+          animation: recording-wave 1.5s ease-in-out infinite;
+        }
+
+        .animate-pulse-subtle {
+          animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
         /* Mobile optimizations */
         @media (max-width: 640px) {
-          .h-screen {
-            height: 100vh;
-            height: calc(var(--vh, 1vh) * 100);
+          textarea {
+            font-size: 16px !important;
           }
           
-          textarea {
+          /* Prevent iOS keyboard zoom */
+          input, textarea, select {
             font-size: 16px !important;
           }
         }
@@ -1879,13 +2299,20 @@ const TopicChat = ({ topic, onClose }) => {
         .animate-flash {
           animation: flash 750ms ease-out forwards;
         }
+        
+        /* Ensure proper spacing on small devices */
+        @media (max-width: 640px) {
+          .font-size-16 {
+            font-size: 16px;
+          }
+        }
         `}
       </style>
 
       {/* Call UI now handled globally in Layout component */}
     </div>
+    </div>
   );
 };
 
 export default TopicChat; 
-

@@ -269,90 +269,67 @@ const FloatingNav = () => {
     }
   }, [location.pathname, user?.uid]);
 
-  // Don't show nav if user is not logged in
+  // Don't show nav if user is not logged in or in chat
   if (!user) return null;
+  
+  // Hide nav when in chat route
+  if (location.pathname === '/chat') return null;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-t border-gray-200/50 dark:border-gray-700/50 z-50 md:hidden shadow-lg">
-      {/* Safe area padding for iOS devices */}
-      <div className="safe-area-inset-bottom">
-        <div className="flex items-center justify-around h-16 px-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            const hasNotifications = item.showNotification && (unreadChats > 0 || pendingResponses > 0 || newTopics > 0);
-            const totalNotifications = unreadChats + pendingResponses + newTopics;
-            
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`
-                  flex flex-col items-center justify-center flex-1 h-full relative group
-                  transition-all duration-300 ease-out
-                  ${isActive 
-                    ? 'text-black dark:text-white' 
-                    : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                  }
-                `}
-              >
-                {/* Active Indicator - Animated */}
-                {isActive && (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-gradient-to-r from-black via-gray-800 to-black dark:from-white dark:via-gray-200 dark:to-white rounded-b-full animate-pulse" />
+    <nav 
+      className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50 md:hidden"
+      style={{
+        paddingBottom: 'env(safe-area-inset-bottom)',
+        height: 'calc(4rem + env(safe-area-inset-bottom))' // 4rem = 64px (h-16 equivalent)
+      }}
+    >
+      <div className="flex items-center justify-around h-16 px-2">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          const hasNotifications = item.showNotification && (unreadChats > 0 || pendingResponses > 0 || newTopics > 0);
+          const totalNotifications = unreadChats + pendingResponses + newTopics;
+          
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className="flex flex-col items-center justify-center flex-1 h-full relative group transition-all duration-200"
+            >
+              {/* Icon Container */}
+              <div className="relative mb-1">
+                {/* Icon */}
+                <item.icon 
+                  className={`h-6 w-6 transition-colors duration-200 ${
+                    isActive 
+                      ? 'text-blue-600' 
+                      : 'text-gray-400'
+                  }`}
+                  strokeWidth={isActive ? 2 : 1.5}
+                />
+                
+                {/* Notification Badge */}
+                {hasNotifications && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-white text-[9px] items-center justify-center font-bold">
+                      {totalNotifications > 9 ? '9' : totalNotifications}
+                    </span>
+                  </span>
                 )}
-                
-                {/* Icon Container with Background */}
-                <div className="relative">
-                  {/* Background circle for active state */}
-                  {isActive && (
-                    <div className="absolute inset-0 -m-2 bg-gray-100 dark:bg-gray-800 rounded-full scale-110 transition-transform duration-300" />
-                  )}
-                  
-                  {/* Icon */}
-                  <div className="relative">
-                    <item.icon 
-                      className={`
-                        h-6 w-6 transition-all duration-300
-                        ${isActive 
-                          ? 'scale-110 drop-shadow-sm' 
-                          : 'group-hover:scale-105 group-active:scale-95'
-                        }
-                      `} 
-                      strokeWidth={isActive ? 2.5 : 2}
-                    />
-                    
-                    {/* Notification Badge */}
-                    {hasNotifications && (
-                      <span className="absolute -top-2 -right-2 flex h-5 w-5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-5 w-5 bg-gradient-to-br from-red-500 to-red-600 text-white text-[9px] items-center justify-center font-bold shadow-lg ring-2 ring-white dark:ring-gray-900">
-                          {totalNotifications > 9 ? '9+' : totalNotifications}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Label with smooth transition */}
-                <span 
-                  className={`
-                    text-[10px] mt-1.5 font-medium tracking-wide transition-all duration-300
-                    ${isActive 
-                      ? 'font-bold opacity-100 scale-100' 
-                      : 'opacity-70 group-hover:opacity-100 scale-95 group-hover:scale-100'
-                    }
-                  `}
-                >
-                  {item.label}
-                </span>
-                
-                {/* Ripple effect on tap */}
-                <span className="absolute inset-0 rounded-lg overflow-hidden">
-                  <span className="absolute inset-0 bg-gray-200 dark:bg-gray-700 opacity-0 group-active:opacity-20 transition-opacity duration-150" />
-                </span>
-              </Link>
-            );
-          })}
-        </div>
+              </div>
+              
+              {/* Label */}
+              <span 
+                className={`text-[10px] font-medium transition-colors duration-200 ${
+                  isActive 
+                    ? 'text-blue-600' 
+                    : 'text-gray-500'
+                }`}
+              >
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
       </div>
     </nav>
   );

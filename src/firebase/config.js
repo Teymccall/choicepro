@@ -4,12 +4,17 @@ import { getAuth, browserLocalPersistence, setPersistence } from "firebase/auth"
 import { 
   getFirestore,
   enableIndexedDbPersistence,
-  CACHE_SIZE_UNLIMITED
+  CACHE_SIZE_UNLIMITED,
+  connectFirestoreEmulator,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
 } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 import { getStorage } from "firebase/storage";
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 import { ref, set, serverTimestamp } from 'firebase/database';
+import { connectionDebugger, logFirestoreEvent, logError, logWarning } from '../utils/connectionDebugger';
 
 // Constants for authentication and retry logic
 export const TIMEOUT = 30000; // 30 seconds
@@ -17,14 +22,14 @@ export const MAX_RETRY_ATTEMPTS = 3;
 export const INITIAL_RETRY_DELAY = 1000; // 1 second
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBl5cdGzFmb4xxz-3inNjUbRI9AKhsw7SE",
-  authDomain: "choice-4496c.firebaseapp.com",
-  databaseURL: "https://choice-4496c-default-rtdb.firebaseio.com",
-  projectId: "choice-4496c",
-  storageBucket: "choice-4496c.firebasestorage.app",
-  messagingSenderId: "997107815311",
-  appId: "1:997107815311:web:056bade42556f933faf1fa",
-  measurementId: "G-FFDDRVPJRZ"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyBl5cdGzFmb4xxz-3inNjUbRI9AKhsw7SE",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "choice-4496c.firebaseapp.com",
+  databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL || "https://choice-4496c-default-rtdb.firebaseio.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "choice-4496c",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "choice-4496c.firebasestorage.app",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "997107815311",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:997107815311:web:056bade42556f933faf1fa",
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-FFDDRVPJRZ"
 };
 
 // Initialize Firebase
@@ -43,25 +48,127 @@ setPersistence(auth, browserLocalPersistence)
 const rtdb = getDatabase(app);
 const storage = getStorage(app);
 
-// Initialize Firestore with default settings
-const db = getFirestore(app);
-
-// Enable offline persistence for Firestore
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    // Multiple tabs open, persistence can only be enabled in one tab at a time.
-    console.warn('Firebase persistence failed - multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    // The current browser doesn't support persistence
-    console.warn('Firebase persistence not supported in this browser');
+// Initialize Firestore with optimized settings for connection stability
+let db;
+try {
+  logFirestoreEvent('Initializing Firestore with long-polling', {
+    forceLongPolling: false,
+    autoDetect: true,
+    persistentCache: true
+  });
+  
+  db = initializeFirestore(app, {
+    // Auto-detect long polling for better compatibility
+    experimentalAutoDetectLongPolling: true,
+    // Enable local cache with multi-tab support
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    }),
+    // Ignore undefined properties to prevent errors
+    ignoreUndefinedProperties: true
+  });
+  
+  logFirestoreEvent('Firestore initialized successfully', {
+    longPolling: true,
+    cacheEnabled: true
+  });
+} catch (error) {
+  logError('Error initializing Firestore with long-polling', error);
+  
+  // Fallback to basic initialization
+  try {
+    db = getFirestore(app);
+    logWarning('Firestore initialized with default settings (fallback)', {
+      longPolling: false,
+      reason: error.message
+    });
+  } catch (fallbackError) {
+    logError('Critical: Failed to initialize Firestore', fallbackError);
+    throw fallbackError;
   }
+}
+
+// Connection state monitoring
+let firestoreConnectionState = 'initializing';
+const firestoreConnectionListeners = new Set();
+
+export const onFirestoreConnectionStateChange = (callback) => {
+  firestoreConnectionListeners.add(callback);
+  callback(firestoreConnectionState);
+  return () => firestoreConnectionListeners.delete(callback);
+};
+
+const updateFirestoreConnectionState = (state) => {
+  const previousState = firestoreConnectionState;
+  firestoreConnectionState = state;
+  
+  if (previousState !== state) {
+    logFirestoreEvent('Connection state changed', {
+      from: previousState,
+      to: state,
+      online: navigator.onLine
+    });
+  }
+  
+  firestoreConnectionListeners.forEach(listener => listener(state));
+};
+
+// Monitor Firestore connection health
+let connectionCheckInterval = null;
+let lastConnectionCheck = Date.now();
+
+const startConnectionMonitoring = () => {
+  if (connectionCheckInterval) return;
+  
+  console.log('[Firestore] Starting connection monitoring');
+  updateFirestoreConnectionState('connected');
+  
+  // Periodic connection health check
+  connectionCheckInterval = setInterval(() => {
+    const now = Date.now();
+    const timeSinceLastCheck = now - lastConnectionCheck;
+    lastConnectionCheck = now;
+    
+    if (!navigator.onLine) {
+      console.log('[Firestore] Network offline detected');
+      updateFirestoreConnectionState('offline');
+    } else if (firestoreConnectionState === 'offline') {
+      console.log('[Firestore] Network back online, reconnecting...');
+      updateFirestoreConnectionState('reconnecting');
+    } else if (timeSinceLastCheck > 15000) {
+      // If more than 15 seconds since last check, connection might be unstable
+      console.warn('[Firestore] Connection check interval exceeded, possible connection issue');
+    }
+  }, 5000);
+};
+
+// Listen for online/offline events
+window.addEventListener('online', () => {
+  logFirestoreEvent('Network online - Firestore reconnecting', {
+    timestamp: new Date().toISOString()
+  });
+  updateFirestoreConnectionState('reconnecting');
+  setTimeout(() => updateFirestoreConnectionState('connected'), 1000);
 });
+
+window.addEventListener('offline', () => {
+  logFirestoreEvent('Network offline - Firestore disconnected', {
+    timestamp: new Date().toISOString()
+  });
+  updateFirestoreConnectionState('offline');
+});
+
+// Export connection debugger for external use
+export { connectionDebugger };
+
+// Start monitoring
+startConnectionMonitoring();
 
 // Initialize Messaging with proper checks
 let messaging = null;
 
 // Add VAPID key configuration
-const VAPID_KEY = "BLwiJ4v1I6ICbjuVg1y03ASqrrKD8SEy8jS2KgbvzgY4GX6UwLZknHaNz50507OKQsKFJMwh_7nXwUACTmW5lig";
+const VAPID_KEY = process.env.REACT_APP_FIREBASE_VAPID_KEY || "BLwiJ4v1I6ICbjuVg1y03ASqrrKD8SEy8jS2KgbvzgY4GX6UwLZknHaNz50507OKQsKFJMwh_7nXwUACTmW5lig";
 
 // Function to initialize messaging
 const initializeMessaging = async () => {

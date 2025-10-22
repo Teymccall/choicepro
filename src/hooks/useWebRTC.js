@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ref, onValue, set, push, remove, update } from 'firebase/database';
+import { ref, onValue, set, push, remove, update, query, orderByChild, equalTo } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { WebRTCConnection } from '../utils/webRTC';
 import { toast } from 'react-hot-toast';
@@ -15,6 +15,7 @@ export const useWebRTC = (user, partner) => {
   const [connectionQuality, setConnectionQuality] = useState('good');
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [pendingCallType, setPendingCallType] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null); // { callId, data }
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -189,6 +190,47 @@ export const useWebRTC = (user, partner) => {
       qualityCheckIntervalRef.current = null;
     }
   }, []);
+
+  // Listen for incoming calls directed to the current user
+  useEffect(() => {
+    if (!user?.uid) {
+      setIncomingCall(null);
+      return undefined;
+    }
+
+    const callsQuery = query(ref(rtdb, 'calls'), orderByChild('recipient'), equalTo(user.uid));
+
+    const unsubscribe = onValue(callsQuery, (snapshot) => {
+      let foundCall = null;
+
+      snapshot.forEach((childSnapshot) => {
+        if (foundCall) return true; // break iteration
+        const data = childSnapshot.val();
+        if (data && data.status === 'ringing' && data.recipient === user.uid) {
+          foundCall = {
+            callId: childSnapshot.key,
+            data,
+          };
+          return true;
+        }
+        return false;
+      });
+
+      if (foundCall) {
+        setIncomingCall(foundCall);
+        if (callStatus === 'idle') {
+          setCallStatus('ringing');
+        }
+      } else {
+        setIncomingCall(null);
+        if (callStatus === 'ringing') {
+          setCallStatus('idle');
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, callStatus]);
 
   // Request to start call (shows permission prompt first)
   const requestCall = useCallback((type = 'audio') => {
@@ -552,6 +594,34 @@ export const useWebRTC = (user, partner) => {
     }
   }, [user]);
 
+  const acceptIncomingCall = useCallback(async () => {
+    if (!incomingCall?.callId || !incomingCall?.data) {
+      return;
+    }
+
+    try {
+      await answerCall(incomingCall.callId, incomingCall.data);
+      setIncomingCall(null);
+    } catch (error) {
+      console.error('Error accepting incoming call:', error);
+      toast.error('Unable to connect call');
+    }
+  }, [incomingCall, answerCall]);
+
+  const declineIncomingCall = useCallback(async () => {
+    if (!incomingCall?.callId) {
+      return;
+    }
+
+    try {
+      await rejectCall(incomingCall.callId);
+    } catch (error) {
+      console.error('Error rejecting incoming call:', error);
+    } finally {
+      setIncomingCall(null);
+    }
+  }, [incomingCall, rejectCall]);
+
   // End call
   const endCall = useCallback(async () => {
     console.log('🔴 endCall function called! Current state:', { currentCallId, callStatus, callType });
@@ -648,20 +718,20 @@ export const useWebRTC = (user, partner) => {
   const toggleSpeaker = useCallback(() => {
     const newState = !isSpeakerOn;
     setIsSpeakerOn(newState);
-    
-    // Set audio output (only works on some browsers)
-    if (remoteVideoRef.current && remoteVideoRef.current.setSinkId) {
-      remoteVideoRef.current.setSinkId(newState ? 'default' : '')
+    if (remoteVideoRef.current && typeof remoteVideoRef.current.setSinkId === 'function') {
+      const targetId = newState ? 'speaker' : 'default';
+      remoteVideoRef.current.setSinkId(targetId)
         .then(() => {
           toast.success(newState ? '🔊 Speaker ON' : '📱 Earpiece', { duration: 1500 });
         })
         .catch(err => {
           console.error('Error switching audio output:', err);
+          setIsSpeakerOn(!newState);
         });
     } else {
-      // Fallback: adjust volume
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.volume = newState ? 1.0 : 0.7;
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current.volume = newState ? 1 : 0.4;
       }
       toast.success(newState ? '🔊 Speaker ON' : '📱 Earpiece', { duration: 1500 });
     }
@@ -738,6 +808,7 @@ export const useWebRTC = (user, partner) => {
     isSpeakerOn,
     callDuration,
     connectionQuality,
+    incomingCall,
     localVideoRef,
     remoteVideoRef,
     showPermissionPrompt,
@@ -747,6 +818,8 @@ export const useWebRTC = (user, partner) => {
     answerCall,
     rejectCall,
     endCall,
+    acceptIncomingCall,
+    declineIncomingCall,
     toggleAudio,
     toggleVideo,
     toggleSpeaker,

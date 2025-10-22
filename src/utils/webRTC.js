@@ -10,6 +10,8 @@ export class WebRTCConnection {
     this.remoteStream = null;
     this.pendingRemoteStream = null; // Store stream if ref not ready
     this.pendingLocalStream = null; // Store local stream if ref not ready
+    this.pendingRemoteStreamInterval = null;
+    this.pendingLocalStreamInterval = null;
     this.localVideoRef = localVideoRef;
     this.remoteVideoRef = remoteVideoRef;
     this.onConnectionStateChange = onConnectionStateChange;
@@ -30,35 +32,22 @@ export class WebRTCConnection {
         // - Xirsys: https://xirsys.com (free tier available)
         // - Metered: https://www.metered.ca/tools/openrelay/ (open relay)
         
-        // Option 1: Metered TURN (Open Relay - No signup required)
+        // Xirsys TURN credentials (static channel credentials)
         {
-          urls: 'turn:openrelay.metered.ca:80',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
+          urls: 'stun:us-turn4.xirsys.com'
         },
         {
-          urls: 'turn:openrelay.metered.ca:443',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        {
-          urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-          username: 'openrelayproject',
-          credential: 'openrelayproject'
-        },
-        
-        // Option 2: Add your own TURN server credentials here
-        // Uncomment and configure with your credentials:
-        // {
-        //   urls: 'turn:your-turn-server.com:3478',
-        //   username: process.env.REACT_APP_TURN_USERNAME,
-        //   credential: process.env.REACT_APP_TURN_CREDENTIAL
-        // },
-        // {
-        //   urls: 'turn:your-turn-server.com:3478?transport=tcp',
-        //   username: process.env.REACT_APP_TURN_USERNAME,
-        //   credential: process.env.REACT_APP_TURN_CREDENTIAL
-        // }
+          urls: [
+            'turn:us-turn4.xirsys.com:80?transport=udp',
+            'turn:us-turn4.xirsys.com:3478?transport=udp',
+            'turn:us-turn4.xirsys.com:80?transport=tcp',
+            'turn:us-turn4.xirsys.com:3478?transport=tcp',
+            'turns:us-turn4.xirsys.com:443?transport=tcp',
+            'turns:us-turn4.xirsys.com:5349?transport=tcp'
+          ],
+          username: 'Qygb8w_JAXvSFABvD9kfDS2vKIZhsaFJ--cowjIjrhUIpWpoAFzIN-vd-ojkvd6xAAAAAGj4RmN0ZXltY2NhbGw=',
+          credential: 'd426b328-aef1-11f0-a45f-0242ac140004'
+        }
       ],
       
       // Additional configuration for better connectivity
@@ -74,10 +63,16 @@ export class WebRTCConnection {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('✅ Local stream created:', this.localStream.getTracks().map(t => t.kind));
+      console.log('🎯 Local stream id:', this.localStream.id, 'tracks:', this.localStream.getTracks().map(t => ({ id: t.id, kind: t.kind, readyState: t.readyState })));
       
       if (this.localVideoRef?.current) {
         console.log('📹 Attaching local stream to video element immediately');
         this.localVideoRef.current.srcObject = this.localStream;
+        console.log('📺 Video element after attach:', {
+          hasElement: !!this.localVideoRef.current,
+          srcObjectId: this.localVideoRef.current?.srcObject?.id,
+          tracks: this.localVideoRef.current?.srcObject?.getTracks().map(t => ({ id: t.id, kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+        });
         
         // Wait for metadata to load before playing to avoid AbortError
         this.localVideoRef.current.onloadedmetadata = () => {
@@ -88,6 +83,20 @@ export class WebRTCConnection {
       } else {
         console.warn('⚠️ Local video ref not available yet - storing stream');
         this.pendingLocalStream = this.localStream;
+        console.log('📦 Stored pendingLocalStream:', {
+          streamId: this.pendingLocalStream?.id,
+          tracks: this.pendingLocalStream?.getTracks().map(t => ({ id: t.id, kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+        });
+        if (this.pendingLocalStreamInterval) {
+          clearInterval(this.pendingLocalStreamInterval);
+        }
+        this.pendingLocalStreamInterval = setInterval(() => {
+          console.log('⏳ Polling applyPendingLocalStream...');
+          if (this.applyPendingLocalStream()) {
+            clearInterval(this.pendingLocalStreamInterval);
+            this.pendingLocalStreamInterval = null;
+          }
+        }, 250);
       }
       
       return this.localStream;
@@ -169,51 +178,85 @@ export class WebRTCConnection {
     this.peerConnection.ontrack = (event) => {
       console.log('🎥 Received remote track:', event.track.kind, 'enabled:', event.track.enabled, 'muted:', event.track.muted);
       console.log('📺 Remote streams available:', event.streams?.length);
-      
+
       // CRITICAL: Ensure audio track is enabled and unmuted
       if (event.track.kind === 'audio') {
         event.track.enabled = true;
         console.log('🔊 Audio track force-enabled:', event.track.enabled);
       }
-      
-      // Use the stream directly from the event
+
+      let incomingStream = null;
+
       if (event.streams && event.streams[0]) {
-        this.remoteStream = event.streams[0];
-        console.log('📹 Remote stream tracks:', this.remoteStream.getTracks().map(t => ({
-          kind: t.kind,
-          enabled: t.enabled,
-          muted: t.muted,
-          readyState: t.readyState
-        })));
-        
-        // Force enable all audio tracks
-        this.remoteStream.getAudioTracks().forEach(track => {
-          track.enabled = true;
-          console.log('🔊 Force-enabled audio track:', track.id, track.enabled);
-        });
-        
-        if (this.remoteVideoRef?.current) {
-          this.remoteVideoRef.current.srcObject = this.remoteStream;
-          console.log('✅ Set remote stream to video/audio element');
-          
-          // Ensure element is unmuted
-          this.remoteVideoRef.current.muted = false;
-          this.remoteVideoRef.current.volume = 1.0;
-          console.log('🔊 Video/Audio element unmuted, volume:', this.remoteVideoRef.current.volume);
-          
-          // Wait for metadata to load before playing to avoid AbortError
-          this.remoteVideoRef.current.onloadedmetadata = () => {
-            this.remoteVideoRef.current.play().catch(err => {
-              console.error('❌ Remote video play error:', err);
-            });
-          };
-        } else {
-          // Store stream for later when video element is ready
-          console.warn('⚠️ Remote video ref not available yet - storing stream');
-          this.pendingRemoteStream = this.remoteStream;
-        }
+        incomingStream = event.streams[0];
       } else {
-        console.warn('⚠️ No streams in ontrack event');
+        console.warn('⚠️ No streams provided with ontrack event, constructing MediaStream fallback');
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+        }
+
+        // Avoid duplicating the same track
+        const alreadyPresent = this.remoteStream.getTracks().some(existing => existing.id === event.track.id);
+        if (!alreadyPresent) {
+          this.remoteStream.addTrack(event.track);
+          console.log('➕ Added track to fallback remote stream:', event.track.id, event.track.kind);
+        }
+        incomingStream = this.remoteStream;
+      }
+
+      this.remoteStream = incomingStream;
+
+      console.log('📹 Remote stream tracks:', this.remoteStream.getTracks().map(t => ({
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState
+      })));
+
+      // Force enable all audio tracks
+      this.remoteStream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+        console.log('🔊 Force-enabled audio track:', track.id, track.enabled, 'muted:', track.muted);
+      });
+
+      if (this.remoteVideoRef?.current) {
+        this.remoteVideoRef.current.srcObject = this.remoteStream;
+        console.log('✅ Set remote stream to video/audio element');
+
+        // Ensure element is unmuted
+        this.remoteVideoRef.current.muted = false;
+        this.remoteVideoRef.current.volume = 1.0;
+        console.log('🔊 Video/Audio element unmuted, volume:', this.remoteVideoRef.current.volume);
+
+        // Wait for metadata to load before playing to avoid AbortError
+        this.remoteVideoRef.current.onloadedmetadata = () => {
+          const mediaEl = this.remoteVideoRef.current;
+          if (!mediaEl) return;
+          mediaEl.play().then(() => {
+            console.log('▶️ Remote media playback started successfully');
+          }).catch(err => {
+            console.error('❌ Remote media play error:', err);
+            // Attempt to recover by forcing mute toggle then play again
+            mediaEl.muted = false;
+            mediaEl.volume = 1.0;
+            mediaEl.play().catch(innerErr => {
+              console.error('❌ Remote media retry failed:', innerErr);
+            });
+          });
+        };
+      } else {
+        // Store stream for later when video element is ready
+        console.warn('⚠️ Remote video ref not available yet - storing stream');
+        this.pendingRemoteStream = this.remoteStream;
+        if (this.pendingRemoteStreamInterval) {
+          clearInterval(this.pendingRemoteStreamInterval);
+        }
+        this.pendingRemoteStreamInterval = setInterval(() => {
+          if (this.applyPendingRemoteStream()) {
+            clearInterval(this.pendingRemoteStreamInterval);
+            this.pendingRemoteStreamInterval = null;
+          }
+        }, 250);
       }
     };
 
@@ -375,6 +418,10 @@ export class WebRTCConnection {
       };
       
       this.pendingRemoteStream = null; // Clear pending stream
+      if (this.pendingRemoteStreamInterval) {
+        clearInterval(this.pendingRemoteStreamInterval);
+        this.pendingRemoteStreamInterval = null;
+      }
       return true;
     }
     return false;
@@ -386,7 +433,15 @@ export class WebRTCConnection {
   applyPendingLocalStream() {
     if (this.pendingLocalStream && this.localVideoRef?.current) {
       console.log('🔄 Applying pending local stream to video element');
+      console.log('📦 Pending stream details:', {
+        streamId: this.pendingLocalStream.id,
+        tracks: this.pendingLocalStream.getTracks().map(t => ({ id: t.id, kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+      });
       this.localVideoRef.current.srcObject = this.pendingLocalStream;
+      console.log('📺 Video element after pending attach:', {
+        srcObjectId: this.localVideoRef.current?.srcObject?.id,
+        tracks: this.localVideoRef.current?.srcObject?.getTracks().map(t => ({ id: t.id, kind: t.kind, enabled: t.enabled, readyState: t.readyState }))
+      });
       
       // Wait for metadata to load before playing to avoid AbortError
       this.localVideoRef.current.onloadedmetadata = () => {
@@ -396,7 +451,15 @@ export class WebRTCConnection {
       };
       
       this.pendingLocalStream = null; // Clear pending stream
+      if (this.pendingLocalStreamInterval) {
+        clearInterval(this.pendingLocalStreamInterval);
+        this.pendingLocalStreamInterval = null;
+      }
+      console.log('✅ Pending local stream applied successfully');
       return true;
+    }
+    if (this.pendingLocalStream && !this.localVideoRef?.current) {
+      console.log('⌛ Pending local stream waiting for video ref');
     }
     return false;
   }
@@ -430,6 +493,16 @@ export class WebRTCConnection {
     }
     if (this.remoteVideoRef?.current) {
       this.remoteVideoRef.current.srcObject = null;
+    }
+
+    if (this.pendingLocalStreamInterval) {
+      clearInterval(this.pendingLocalStreamInterval);
+      this.pendingLocalStreamInterval = null;
+    }
+
+    if (this.pendingRemoteStreamInterval) {
+      clearInterval(this.pendingRemoteStreamInterval);
+      this.pendingRemoteStreamInterval = null;
     }
 
     this.peerConnection = null;

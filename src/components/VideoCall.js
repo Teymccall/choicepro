@@ -36,6 +36,9 @@ const VideoCall = ({
 
   // Check if remote video has stream
   const [hasRemoteStream, setHasRemoteStream] = React.useState(false);
+  const localPiPVideoRef = React.useRef(null);
+  const callingDisplayVideoRef = React.useRef(null);
+  const [hasLocalPreview, setHasLocalPreview] = React.useState(false);
 
   useEffect(() => {
     if (remoteVideoRef?.current) {
@@ -51,18 +54,149 @@ const VideoCall = ({
     }
   }, [remoteVideoRef]);
 
+  // Keep PiP preview in sync with local stream
+  useEffect(() => {
+    const sourceEl = localVideoRef?.current;
+    const pipEl = localPiPVideoRef.current;
+    
+    console.log('🔄 Sync effect running', { 
+      hasSourceEl: !!sourceEl, 
+      hasPipEl: !!pipEl, 
+      sourceSrcObject: !!sourceEl?.srcObject,
+      pipSrcObject: !!pipEl?.srcObject,
+      callStatus 
+    });
+    
+    if (!sourceEl || !pipEl) {
+      return;
+    }
+
+    const syncStream = () => {
+      if (sourceEl.srcObject && pipEl.srcObject !== sourceEl.srcObject) {
+        console.log('📹 Syncing local stream to PiP:', sourceEl.srcObject);
+        pipEl.srcObject = sourceEl.srcObject;
+        pipEl.muted = true;
+        pipEl.play().catch((err) => console.error('Error playing local PiP video:', err));
+        setHasLocalPreview(true);
+      }
+    };
+
+    // Immediate sync
+    syncStream();
+    
+    // Set up listeners for future updates
+    sourceEl.addEventListener('loadedmetadata', syncStream);
+    sourceEl.addEventListener('play', syncStream);
+
+    // Polling fallback to ensure sync happens
+    const syncInterval = setInterval(syncStream, 500);
+
+    return () => {
+      sourceEl.removeEventListener('loadedmetadata', syncStream);
+      sourceEl.removeEventListener('play', syncStream);
+      clearInterval(syncInterval);
+    };
+  }, [localVideoRef, callStatus]);
+
   // Ensure local video plays when ref is available
   useEffect(() => {
     if (localVideoRef?.current && localVideoRef.current.srcObject) {
-      console.log('Local video ref ready, attempting to play');
+      console.log('Local video ref ready, attempting to play', {
+        srcObject: localVideoRef.current.srcObject,
+        tracks: localVideoRef.current.srcObject?.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState
+        }))
+      });
       localVideoRef.current.play().catch(err => {
         console.error('Error playing local video:', err);
       });
+      setHasLocalPreview(true);
     }
   }, [localVideoRef, callStatus]);
 
+  // Poll local preview state to keep overlay accurate
+  useEffect(() => {
+    const updatePreviewState = () => {
+      const stream = localVideoRef?.current?.srcObject;
+      const hasPreview = !!stream && stream.getVideoTracks().some(track => track.readyState === 'live' && track.enabled);
+      setHasLocalPreview(prev => prev === hasPreview ? prev : hasPreview);
+    };
+
+    updatePreviewState();
+    const interval = setInterval(updatePreviewState, 500);
+    return () => clearInterval(interval);
+  }, [localVideoRef, callStatus]);
+
+  // Sync calling display video with local stream
+  useEffect(() => {
+    const sourceEl = localVideoRef?.current;
+    const displayEl = callingDisplayVideoRef.current;
+    
+    if (!sourceEl || !displayEl || callStatus === 'active') {
+      return;
+    }
+
+    const syncCallingDisplay = () => {
+      if (sourceEl.srcObject && displayEl.srcObject !== sourceEl.srcObject) {
+        console.log('📹 Syncing local stream to calling display:', sourceEl.srcObject);
+        displayEl.srcObject = sourceEl.srcObject;
+        displayEl.muted = true;
+        displayEl.play().catch((err) => console.error('Error playing calling display video:', err));
+      }
+    };
+
+    // Immediate sync
+    syncCallingDisplay();
+    
+    // Polling to ensure sync happens
+    const syncInterval = setInterval(syncCallingDisplay, 500);
+
+    return () => {
+      clearInterval(syncInterval);
+    };
+  }, [localVideoRef, callStatus]);
+
+  // Debug: Log component render and ref state
+  console.log('🎬 VideoCall render:', {
+    callStatus,
+    callType,
+    hasLocalVideoRef: !!localVideoRef,
+    hasLocalVideoCurrent: !!localVideoRef?.current,
+    localVideoSrcObject: !!localVideoRef?.current?.srcObject,
+    localVideoTracks: localVideoRef?.current?.srcObject?.getTracks().map(t => t.kind)
+  });
+
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 flex flex-col">
+      {/* Header with Partner Info - Always visible */}
+      <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 bg-gradient-to-b from-black/80 to-transparent z-10">
+        <div className="flex items-center space-x-3 sm:space-x-4">
+          {/* Partner Profile Picture */}
+          <div className="relative">
+            <img
+              src={partnerPhotoURL || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(partnerName)}
+              alt={partnerName}
+              className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-white/20"
+            />
+            {callStatus === 'active' && (
+              <div className="absolute -bottom-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full border-2 border-gray-900 animate-pulse"></div>
+            )}
+          </div>
+          
+          {/* Partner Name and Status */}
+          <div className="flex-1">
+            <h2 className="text-lg sm:text-2xl font-bold text-white">{partnerName}</h2>
+            <p className="text-sm sm:text-base text-gray-300">
+              {callStatus === 'calling' && '☎️ Calling...'}
+              {callStatus === 'ringing' && '📞 Ringing...'}
+              {callStatus === 'active' && `🟢 ${formatDuration(callDuration)}`}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Remote Video (Full Screen) OR Audio Call Display */}
       <div className="relative flex-1 bg-black">
         {callType === 'video' ? (
@@ -124,20 +258,20 @@ const VideoCall = ({
               /* Local Video Full Screen - Show while calling/ringing (before connection) */
               <>
                 <video
-                  ref={localVideoRef}
+                  ref={callingDisplayVideoRef}
                   autoPlay
                   playsInline
                   muted
                   className="w-full h-full object-cover mirror"
                   onLoadedMetadata={(e) => {
-                    console.log('Local video metadata loaded, stream:', e.target.srcObject);
-                    // Let the WebRTC class handle play() to avoid conflicts
+                    console.log('🎬 Calling display video metadata loaded');
+                    console.log('📹 Calling display srcObject:', e.target.srcObject);
                   }}
-                  onPlay={() => console.log('▶️ Local video started playing')}
-                  onError={(e) => console.error('❌ Local video error:', e)}
+                  onPlay={() => console.log('▶️ Calling display video started playing')}
+                  onError={(e) => console.error('❌ Calling display video error:', e)}
                 />
                 {/* Debug: Show if no stream after 2 seconds */}
-                {callStatus === 'calling' && !localVideoRef?.current?.srcObject && (
+                {callStatus === 'calling' && !hasLocalPreview && (
                   <div className="absolute inset-0 flex items-center justify-center bg-red-900/50 text-white z-30">
                     <div className="text-center p-6">
                       <VideoCameraSlashIcon className="h-16 w-16 mx-auto mb-4" />
@@ -153,19 +287,12 @@ const VideoCall = ({
         ) : (
           <>
             {/* Audio Call - Show Profile Picture */}
-            <div className="w-full h-full flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-black">
-              {/* Top header with partner name */}
-              {callStatus === 'active' && (
-                <div className="pt-8 pb-4 text-center">
-                  <h2 className="text-2xl font-bold text-white">{partnerName}</h2>
-                </div>
-              )}
-              
+            <div className="w-full h-full flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-black pt-24 sm:pt-28">
               {/* Center content */}
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
                 {/* Large Profile Picture */}
-                <div className="w-48 h-48 mx-auto rounded-full overflow-hidden shadow-2xl ring-8 ring-white/10 mb-8">
+                <div className="w-48 h-48 sm:w-64 sm:h-64 mx-auto rounded-full overflow-hidden shadow-2xl ring-8 ring-white/10 mb-8">
                   {partnerPhotoURL ? (
                     <img 
                       src={partnerPhotoURL} 
@@ -174,28 +301,12 @@ const VideoCall = ({
                     />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                      <span className="text-8xl text-white font-bold">
+                      <span className="text-7xl sm:text-9xl text-white font-bold">
                         {partnerName?.charAt(0)?.toUpperCase() || '?'}
                       </span>
                     </div>
                   )}
                 </div>
-                
-                {/* Call Status */}
-                {callStatus === 'active' && (
-                  <div className="flex items-center justify-center space-x-2 mb-2">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                    <p className="text-2xl font-semibold text-white">{formatDuration(callDuration)}</p>
-                  </div>
-                )}
-                
-                {/* Voice Call Label */}
-                {callStatus === 'active' && (
-                  <div className="flex items-center justify-center space-x-2 px-4 py-1.5 bg-white/10 rounded-full backdrop-blur-sm">
-                    <PhoneIcon className="h-4 w-4 text-green-400" />
-                    <span className="text-sm text-gray-300">Voice Call</span>
-                  </div>
-                )}
                 
                 {/* Audio Wave Animation */}
                 {callStatus === 'active' && isAudioEnabled && (
@@ -313,51 +424,52 @@ const VideoCall = ({
           </div>
         )}
 
-        {/* Call Info Overlay */}
-        {callStatus === 'active' && (
-          <div className="absolute top-0 left-0 right-0 p-6 bg-gradient-to-b from-black/60 to-transparent">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-xl font-semibold text-white">{partnerName}</h3>
-                <p className="text-sm text-gray-300">{formatDuration(callDuration)}</p>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1">
-                  <div className={`w-2 h-2 rounded-full ${
-                    connectionQuality === 'good' ? 'bg-green-500 animate-pulse' :
-                    connectionQuality === 'fair' ? 'bg-yellow-500 animate-pulse' :
-                    'bg-red-500 animate-pulse'
-                  }`}></div>
-                  <span className="text-sm text-white">
-                    {connectionQuality === 'good' ? 'Connected' :
-                     connectionQuality === 'fair' ? 'Connecting...' :
-                     'Poor Connection'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Persistent hidden video element - ALWAYS maintains localVideoRef throughout call lifecycle */}
+      {callType === 'video' && callStatus !== 'idle' && (
+        <video
+          ref={localVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="hidden"
+          onLoadedMetadata={(e) => {
+            console.log('🎬 Persistent local video metadata loaded');
+            console.log('📹 Persistent video srcObject:', e.target.srcObject);
+            console.log('🎥 Persistent video tracks:', e.target.srcObject?.getTracks().map(t => ({
+              kind: t.kind,
+              enabled: t.enabled,
+              readyState: t.readyState
+            })));
+          }}
+          onPlay={() => console.log('▶️ Persistent local video started playing')}
+          onError={(e) => console.error('❌ Persistent local video error:', e)}
+        />
+      )}
 
       {/* Local Video (Picture in Picture) - Show during all video call states */}
       {callType === 'video' && callStatus !== 'idle' && (
         <div className="absolute top-20 right-4 w-40 h-52 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 bg-gray-800 z-20">
           <video
-            ref={localVideoRef}
+            ref={localPiPVideoRef}
             autoPlay
             playsInline
             muted
             className="w-full h-full object-cover mirror"
             onLoadedMetadata={(e) => {
               console.log('📹 PiP local video loaded');
-              console.log('🎥 Local srcObject:', e.target.srcObject);
-              console.log('🎬 Local tracks:', e.target.srcObject?.getTracks().map(t => ({kind: t.kind, enabled: t.enabled})));
-              // Let the WebRTC class handle play() to avoid conflicts
+              console.log('🎥 PiP srcObject:', e.target.srcObject);
+              console.log('🎬 PiP tracks:', e.target.srcObject?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
             }}
             onPlay={() => console.log('▶️ PiP local video playing')}
             onError={(e) => console.error('❌ PiP local video error:', e)}
           />
+          {!hasLocalPreview && (
+            <div className="absolute inset-0 bg-gray-800/80 flex items-center justify-center text-white text-xs tracking-wide">
+              Camera preview unavailable
+            </div>
+          )}
           {!isVideoEnabled && (
             <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
               <VideoCameraSlashIcon className="h-8 w-8 text-white/50" />

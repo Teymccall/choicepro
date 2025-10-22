@@ -68,22 +68,6 @@ const CallManager = () => {
         window.ringtoneAudio = null;
       }
 
-      // IMPORTANT: Request microphone permission BEFORE joining
-      // This satisfies browser autoplay policy and enables audio
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true, 
-          video: incomingCall.callType === 'video' 
-        });
-        // Stop the test stream - ZegoCloud will create its own
-        stream.getTracks().forEach(track => track.stop());
-        console.log('✅ Microphone permission granted');
-      } catch (err) {
-        console.error('❌ Microphone permission denied:', err);
-        toast.error('Microphone access required for calls');
-        return;
-      }
-
       // Update call status
       await update(ref(rtdb, `calls/${user.uid}`), {
         status: 'active',

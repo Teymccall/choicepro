@@ -32,9 +32,50 @@ const MessageStatus = ({ status }) => {
 };
 
 const ContextMenu = ({ isOpen, onClose, position, isSent, onReply, onEdit, onDelete, onReact }) => {
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const updateViewport = () => {
+      setViewport({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+    };
+  }, []);
+
   if (!isOpen) return null;
 
   const reactions = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🎉'];
+  const minMargin = 16;
+  const maxWidth = 360;
+  const minWidth = 220;
+  const availableWidth = viewport.width ? Math.max(minWidth, Math.min(maxWidth, viewport.width - minMargin * 2)) : maxWidth;
+  const isCompact = viewport.width && viewport.width <= 640;
+
+  let top = position.y;
+  if (viewport.height) {
+    const maxTop = viewport.height - minMargin - 280;
+    top = Math.max(minMargin, Math.min(top, maxTop));
+  }
+
+  let left = isSent ? undefined : position.x;
+  let right = isSent ? minMargin : undefined;
+
+  if (isCompact && viewport.width) {
+    left = Math.max(minMargin, Math.min(position.x - availableWidth / 2, viewport.width - availableWidth - minMargin));
+    right = undefined;
+  } else if (!isSent && viewport.width) {
+    left = Math.max(minMargin, Math.min(position.x, viewport.width - availableWidth - minMargin));
+  }
 
   return (
     <>
@@ -48,13 +89,15 @@ const ContextMenu = ({ isOpen, onClose, position, isSent, onReply, onEdit, onDel
       <div 
         className="fixed z-50 animate-in fade-in zoom-in-95 duration-200"
         style={{
-          top: `${position.y}px`,
-          left: isSent ? 'auto' : `${position.x}px`,
-          right: isSent ? '16px' : 'auto',
+          top: `${top}px`,
+          left: left !== undefined ? `${left}px` : 'auto',
+          right: right !== undefined ? `${right}px` : 'auto',
+          width: `${availableWidth}px`,
+          maxWidth: `${availableWidth}px`
         }}
       >
         {/* Reactions Bar */}
-        <div className="bg-white dark:bg-gray-800 rounded-full shadow-2xl px-4 py-3 mb-2 flex items-center gap-2">
+        <div className="bg-white dark:bg-gray-800 rounded-full shadow-2xl px-4 py-3 mb-2 flex items-center justify-center gap-3 flex-wrap">
           {reactions.map((emoji, index) => (
             <button
               key={index}
@@ -259,6 +302,12 @@ const ChatMessage = ({ message, isSent, timestamp, media, status, onReply, onEdi
     );
   };
 
+  const handleMessageClick = () => {
+    if (onReply) {
+      onReply(message);
+    }
+  };
+
   return (
     <>
       <div className={`mb-2 px-4 ${isSent ? 'flex justify-end' : 'flex justify-start'}`}>
@@ -276,6 +325,7 @@ const ChatMessage = ({ message, isSent, timestamp, media, status, onReply, onEdi
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
           onContextMenu={handleContextMenu}
+          onClick={handleMessageClick}
         >
           {renderMedia()}
           {message && (

@@ -391,9 +391,11 @@ const Navigation = () => {
             {/* Brand section */}
             <div className="flex-shrink-0 flex items-center">
               <Link to="/" className="group">
-                <div className="text-xl font-bold text-gray-900 dark:text-white tracking-tight transition-colors duration-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">
-                  choice
-                </div>
+                <img 
+                  src="/choice_app_logo.png" 
+                  alt="Choice App" 
+                  className="h-10 w-10 object-contain transition-transform duration-200 group-hover:scale-110"
+                />
               </Link>
             </div>
 

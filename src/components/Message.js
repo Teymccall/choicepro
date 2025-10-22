@@ -10,7 +10,8 @@ import {
   EllipsisVerticalIcon,
   DocumentIcon,
   PlayIcon,
-  PauseIcon
+  PauseIcon,
+  MicrophoneIcon
 } from '@heroicons/react/24/outline';
 import { CheckIcon as CheckIconSolid } from '@heroicons/react/24/solid';
 import { formatTime } from '../utils/dateUtils';
@@ -22,20 +23,32 @@ const VoiceNotePlayer = ({ audioUrl, duration, isOwnMessage }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const audioRef = useRef(null);
+  const waveformHeights = useRef([...Array(20)].map((_, i) => 8 + Math.sin(i * 0.5) * 12));
   
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     
     const updateTime = () => setCurrentTime(audio.currentTime);
-    const handleEnded = () => setIsPlaying(false);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+      audio.currentTime = 0;
+    };
+    
+    const handlePause = () => setIsPlaying(false);
+    const handlePlay = () => setIsPlaying(true);
     
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('play', handlePlay);
     
     return () => {
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('play', handlePlay);
     };
   }, []);
   
@@ -46,18 +59,21 @@ const VoiceNotePlayer = ({ audioUrl, duration, isOwnMessage }) => {
     if (isPlaying) {
       audio.pause();
     } else {
-      audio.play();
+      audio.play().catch(err => {
+        console.error('Audio playback error:', err);
+        setIsPlaying(false);
+      });
     }
-    setIsPlaying(!isPlaying);
   };
   
   const formatDuration = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    const totalSeconds = Math.max(0, Math.round(seconds || 0));
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress = duration > 0 ? (currentTime / duration) : 0;
   
   return (
     <div className="flex items-center gap-2 min-w-[200px] py-1">
@@ -81,10 +97,9 @@ const VoiceNotePlayer = ({ audioUrl, duration, isOwnMessage }) => {
       
       {/* Waveform Progress */}
       <div className="flex-1 h-8 flex items-center gap-0.5">
-        {[...Array(20)].map((_, i) => {
-          const barProgress = (i / 20) * 100;
+        {waveformHeights.current.map((height, i) => {
+          const barProgress = (i / 20);
           const isActive = progress >= barProgress;
-          const height = Math.random() * 16 + 8; // Random heights between 8-24px
           
           return (
             <div
@@ -105,12 +120,12 @@ const VoiceNotePlayer = ({ audioUrl, duration, isOwnMessage }) => {
       </div>
       
       {/* Duration */}
-      <span className={`text-[11px] ${
+      <span className={`text-[11px] whitespace-nowrap ${
         isOwnMessage
           ? 'text-white/70'
           : 'text-gray-600 dark:text-gray-400'
       }`}>
-        {formatDuration(isPlaying ? currentTime : duration || 0)}
+        {formatDuration(isPlaying ? currentTime : duration)}
       </span>
     </div>
   );
@@ -187,6 +202,12 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
           element.classList.remove('bg-primary-50', 'dark:bg-primary-900/20');
         }, 1000);
       }
+    }
+  };
+
+  const handleMessageClick = () => {
+    if (onReply) {
+      onReply(message);
     }
   };
 
@@ -283,15 +304,23 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
           </span>
           {message.replyTo.media ? (
             <div className="flex items-center space-x-2">
-              <div className="relative w-8 h-8 rounded overflow-hidden flex-shrink-0 bg-black/5">
-                <img 
-                  src={message.replyTo.media.url} 
-                  alt="Replied media"
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-              <span className="truncate text-[#667781]">Photo</span>
+              {message.replyTo.media.type?.startsWith('audio') ? (
+                <div className="relative w-8 h-8 rounded overflow-hidden flex-shrink-0 bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <MicrophoneIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              ) : (
+                <div className="relative w-8 h-8 rounded overflow-hidden flex-shrink-0 bg-black/5">
+                  <img 
+                    src={message.replyTo.media.url} 
+                    alt="Replied media"
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+              <span className="truncate text-[#667781]">
+                {message.replyTo.media.type?.startsWith('audio') ? '🎤 Voice message' : '📷 Photo'}
+              </span>
             </div>
           ) : (
             <span className="block truncate text-[#667781]">
@@ -510,7 +539,7 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
                 </svg>
               </button>
               
-              {isOwnMessage && isWithinEditWindow() && (
+              {isOwnMessage && isWithinEditWindow() && !message.media?.type?.startsWith('audio') && (
                 <button
                   onClick={startEdit}
                   className="w-full px-4 py-3 text-left text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-xl flex items-center justify-between transition-all"

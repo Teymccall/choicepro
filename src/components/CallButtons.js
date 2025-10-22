@@ -35,23 +35,6 @@ const CallButtons = () => {
     try {
       setIsInitiating(true);
 
-      // CRITICAL: Request microphone permission BEFORE creating call
-      // This satisfies browser autoplay policy and enables audio
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true, 
-          video: callType === 'video' 
-        });
-        // Stop the test stream - ZegoCloud will create its own
-        stream.getTracks().forEach(track => track.stop());
-        console.log('✅ Microphone/camera permission granted');
-      } catch (err) {
-        console.error('❌ Media permission denied:', err);
-        toast.error('Microphone access required for calls');
-        setIsInitiating(false);
-        return;
-      }
-
       // Generate unique room ID
       const roomID = `room_${user.uid}_${partner.uid}_${Date.now()}`;
       const userName = user.displayName || user.email?.split('@')[0] || 'User';

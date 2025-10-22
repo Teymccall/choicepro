@@ -216,99 +216,62 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Animated Background Blobs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob" />
-        <div className="absolute top-40 right-10 w-72 h-72 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000" />
-        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000" />
-      </div>
-
-      <div className="relative w-full max-w-md">
-        {/* Logo Section */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-6">
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="relative bg-white p-4 rounded-3xl shadow-2xl">
-                <img 
-                  src="/choice_app_logo.png" 
-                  alt="Choice App" 
-                  className="h-24 w-24"
-                />
-              </div>
-            </div>
-          </div>
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome Back
-          </h2>
-          <p className="text-gray-600">
-            Sign in to continue to Choice
-          </p>
-        </div>
-
-        {/* Login Card */}
-        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-white/20">
-          <div className="text-center mb-6">
-            <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/signup" className="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
-                Sign up
-              </Link>
-            </p>
-          </div>
-
-          {/* Google Sign In Button */}
-          <button
-            onClick={handleGoogleSignIn}
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border-2 border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-          >
-            <img
-              src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-              alt="Google"
-              className="h-5 w-5"
-            />
-            Continue with Google
-          </button>
-
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-gray-500 font-medium">
-                Or continue with email
-              </span>
-            </div>
-          </div>
-
-          {/* Email/Password Form */}
-          <form className="space-y-5" onSubmit={handleLogin}>
-            {/* Email Input */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200"
-                placeholder="Enter your email"
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-[#0b0c1a] via-[#181b3a] to-[#3b2a6d] text-white">
+      <div className="flex-1 flex flex-col items-center justify-center px-5 py-10 sm:py-12">
+        <div className="w-full max-w-sm sm:max-w-md bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl px-6 sm:px-8 py-8 space-y-6">
+          <div className="flex flex-col items-center text-center space-y-4">
+            <div className="h-16 w-16 sm:h-18 sm:w-18 rounded-2xl bg-white/18 flex items-center justify-center shadow-inner">
+              <img
+                src="/choice_app_logo.png"
+                alt="Choice"
+                className="h-10 w-10 sm:h-12 sm:w-12 object-contain"
               />
             </div>
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-semibold">Welcome back</h1>
+              <p className="text-xs sm:text-sm text-white/70">
+                Connect with your partner and keep the conversation going.
+              </p>
+            </div>
+          </div>
 
-            {/* Password Input */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
+          <div className="space-y-4">
+            <button
+              onClick={handleGoogleSignIn}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 bg-white text-gray-900 rounded-full font-medium text-sm shadow-sm hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/70 focus:ring-offset-2 focus:ring-offset-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <img
+                src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+                alt="Google"
+                className="h-4 w-4"
+              />
+              Continue with Google
+            </button>
+
+            <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/55">
+              <span className="h-px flex-1 rounded-full bg-white/15"></span>
+              <span className="px-4 py-1 rounded-full bg-white/12 backdrop-blur-sm text-white/75">
+                Or Email
+              </span>
+              <span className="h-px flex-1 rounded-full bg-white/15"></span>
+            </div>
+
+            <form className="space-y-3" onSubmit={handleLogin}>
+              <div>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-full bg-white/90 text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-white/80 focus:border-transparent transition-all"
+                  placeholder="Email address"
+                />
+              </div>
+
               <div className="relative">
                 <input
                   id="password"
@@ -318,80 +281,79 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 pr-12 bg-white border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200"
-                  placeholder="Enter your password"
+                  className="w-full px-4 py-2.5 pr-10 rounded-full bg-white/90 text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-white/80 focus:border-transparent transition-all"
+                  placeholder="Password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? (
-                    <EyeSlashIcon className="h-5 w-5" />
+                    <EyeSlashIcon className="h-4 w-4" />
                   ) : (
-                    <EyeIcon className="h-5 w-5" />
+                    <EyeIcon className="h-4 w-4" />
                   )}
                 </button>
               </div>
-            </div>
 
-            {/* Remember Me & Forgot Password */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <input
-                  id="remember-me"
-                  name="remember-me"
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => {
-                    setRememberMe(e.target.checked);
-                    if (!e.target.checked) {
-                      cookieManager.clearAuthState();
-                    }
-                  }}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
-                  Remember me
-                </label>
+              <div className="flex justify-end">
+                <Link
+                  to="/forgot-password"
+                  className="text-[11px] font-medium text-white/75 hover:text-white"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
-              <Link 
-                to="/forgot-password" 
-                className="text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+              {error && (
+                <div className="rounded-xl bg-red-500/10 border border-red-500/40 px-3 py-2">
+                  <p className="text-xs text-red-100">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full px-4 py-2.5 rounded-full bg-white text-gray-900 font-semibold text-sm shadow-md hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-white/70 focus:ring-offset-2 focus:ring-offset-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Forgot password?
+                {isLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900" />
+                    <span>Signing in…</span>
+                  </div>
+                ) : (
+                  'Continue'
+                )}
+              </button>
+            </form>
+
+            <div className="flex flex-col items-center gap-1 text-[11px] text-white/65">
+              <span>Don't have an account?</span>
+              <Link
+                to="/signup"
+                className="font-semibold text-white hover:text-white/85"
+              >
+                Create one now
               </Link>
             </div>
+          </div>
+        </div>
 
-            {/* Error Message */}
-            {error && (
-              <div className="rounded-xl bg-red-50 border-2 border-red-200 p-4">
-                <p className="text-sm font-medium text-red-800">{error}</p>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-500/50 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                  Signing in...
-                </>
-              ) : (
-                <>
-                  Sign in
-                  <ArrowRightIcon className="h-5 w-5" strokeWidth={2.5} />
-                </>
-              )}
-            </button>
-          </form>
+        <div className="mt-6 text-center text-[10px] text-white/50">
+          <div className="flex items-center justify-center gap-3">
+            <Link to="/terms" className="hover:text-white/80">
+              Terms of Use
+            </Link>
+            <span className="text-white/40">•</span>
+            <Link to="/privacy" className="hover:text-white/80">
+              Privacy Policy
+            </Link>
+          </div>
         </div>
       </div>
     </div>
   );
-} 
+}
+ 

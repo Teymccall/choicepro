@@ -353,27 +353,27 @@ const ConnectPartner = () => {
   }
 
   return (
-    <div className="relative overflow-hidden bg-white/60 dark:bg-gray-800/60 backdrop-blur-xl p-6 sm:p-8 rounded-2xl shadow-xl border border-white/20 dark:border-gray-700/50">
+    <div className="relative overflow-hidden bg-white/60 dark:bg-gray-800/60 backdrop-blur-xl p-5 sm:p-6 rounded-2xl shadow-xl border border-white/20 dark:border-gray-700/50">
       {/* Decorative gradient blurs */}
       <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-400 to-purple-400 opacity-10 rounded-full blur-3xl" />
       <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-tr from-purple-400 to-pink-400 opacity-10 rounded-full blur-3xl" />
       
-      <div className="relative text-center mb-6">
+      <div className="relative text-center mb-4">
         {/* Logo with gradient background */}
-        <div className="inline-flex items-center justify-center w-24 h-24 bg-white dark:bg-gray-900 rounded-2xl shadow-lg mb-4 transform hover:scale-105 transition-transform duration-300">
+        <div className="inline-flex items-center justify-center w-16 h-16 bg-white dark:bg-gray-900 rounded-2xl shadow-lg mb-3 transform hover:scale-105 transition-transform duration-300">
           <img 
             src="/choice_app_logo.png" 
             alt="Choice App" 
-            className="w-16 h-16 object-contain"
+            className="w-12 h-12 object-contain"
           />
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Connect with Partner</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Connect with Partner</h2>
+        <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
           Search for a partner or enter their invite code to connect
         </p>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* Invite Code Section */}
         <div className="relative space-y-4">
           <div className="flex-1">
@@ -386,7 +386,7 @@ const ConnectPartner = () => {
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
               placeholder="ENTER PARTNER'S INVITE CODE"
-              className="block w-full px-4 py-4 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm border-2 border-gray-200 dark:border-gray-700 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-purple-500 dark:focus:border-purple-500 text-center uppercase tracking-[0.3em] font-bold text-gray-900 dark:text-white transition-all duration-300 hover:border-blue-300 dark:hover:border-purple-600"
+              className="block w-full px-4 py-3 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm border-2 border-gray-200 dark:border-gray-700 rounded-xl shadow-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-purple-500 dark:focus:border-purple-500 text-center uppercase tracking-[0.2em] font-bold text-gray-900 dark:text-white transition-all duration-300 hover:border-blue-300 dark:hover:border-purple-600"
               maxLength={6}
             />
           </div>
@@ -408,7 +408,7 @@ const ConnectPartner = () => {
           <button
             onClick={handleSubmit}
             disabled={isLoading || inviteCode.length !== 6}
-            className={`w-full flex items-center justify-center px-6 py-4 border-none text-base font-bold rounded-xl text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-500/50 dark:focus:ring-purple-500/50 shadow-lg hover:shadow-xl transition-all duration-300 ${
+            className={`w-full flex items-center justify-center px-6 py-3 border-none text-base font-bold rounded-xl text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-4 focus:ring-blue-500/50 dark:focus:ring-purple-500/50 shadow-lg hover:shadow-xl transition-all duration-300 ${
               isLoading || inviteCode.length !== 6
                 ? 'opacity-50 cursor-not-allowed'
                 : 'hover:scale-[1.02] active:scale-95'
@@ -430,17 +430,17 @@ const ConnectPartner = () => {
 
         {/* Active Invite Code Section - Compact */}
         {activeInviteCode && (
-          <div className="mt-4 p-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
+          <div className="mt-3 p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex-1">
                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Your Invite Code</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl font-mono font-bold tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+                  <span className="text-xl font-mono font-bold tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
                     {activeInviteCode.code}
                   </span>
                   <button
                     onClick={handleCopyCode}
-                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                     title="Copy code"
                   >
                     {copied ? (
@@ -461,7 +461,7 @@ const ConnectPartner = () => {
               </div>
               <button
                 onClick={() => setIsSearchOpen(true)}
-                className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg transition-all shadow-sm hover:shadow-md"
+                className="p-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg transition-all shadow-sm hover:shadow-md"
                 title="Search for partners"
               >
                 <MagnifyingGlassIcon className="h-5 w-5 text-white" strokeWidth={2.5} />
@@ -474,7 +474,7 @@ const ConnectPartner = () => {
           <button
             onClick={handleGenerateCode}
             disabled={isLoading}
-            className="w-full inline-flex items-center justify-center px-6 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 text-base font-semibold rounded-xl text-gray-700 dark:text-gray-300 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400 dark:hover:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/30 transition-all duration-300 hover:scale-[1.02]"
+            className="w-full inline-flex items-center justify-center px-6 py-2.5 border-2 border-dashed border-gray-300 dark:border-gray-600 text-base font-semibold rounded-xl text-gray-700 dark:text-gray-300 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-400 dark:hover:border-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/30 transition-all duration-300 hover:scale-[1.02]"
           >
             <PlusCircleIcon className="h-6 w-6 mr-2" strokeWidth={2} />
             Generate New Code

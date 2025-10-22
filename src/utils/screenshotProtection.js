@@ -25,13 +25,19 @@ export const initScreenshotDetection = (userId, partnerId, topicId) => {
   document.addEventListener('mousemove', updateActivity);
   document.addEventListener('keypress', updateActivity);
 
-  // Method 1: Enhanced visibility change detection
+  // Check if device is mobile
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  // Method 1: Enhanced visibility change detection (DISABLED ON MOBILE - too many false positives)
   const handleVisibilityChange = async () => {
+    // Skip on mobile - causes false positives with normal app switching
+    if (isMobile) return;
+    
     if (document.hidden && !screenshotDetected) {
       const timeSinceActivity = Date.now() - lastActivityTime;
       
-      // If user was active less than 2 seconds ago, likely a screenshot
-      if (timeSinceActivity < 2000) {
+      // If user was active less than 1 second ago, likely a screenshot
+      if (timeSinceActivity < 1000) {
         screenshotDetected = true;
         await logScreenshotAttempt(userId, partnerId, topicId, 'visibility_change');
         
@@ -51,11 +57,14 @@ export const initScreenshotDetection = (userId, partnerId, topicId) => {
     }
   };
 
-  // Method 2: Detect focus loss with better timing
+  // Method 2: Detect focus loss (DISABLED ON MOBILE - too aggressive)
   const handleBlur = async () => {
+    // Skip on mobile - normal behavior when user switches apps
+    if (isMobile) return;
+    
     const timeSinceActivity = Date.now() - lastActivityTime;
     
-    if (timeSinceActivity < 1500) {
+    if (timeSinceActivity < 800) {
       setTimeout(async () => {
         if (!document.hasFocus()) {
           await logScreenshotAttempt(userId, partnerId, topicId, 'focus_loss');
@@ -219,14 +228,26 @@ export const initContentProtection = () => {
 
 /**
  * Prevent right-click context menu (helps prevent "Save Image" etc.)
+ * Only show notification on desktop, not mobile touch
  */
 export const preventContextMenu = () => {
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
   const handleContextMenu = (e) => {
+    // Always prevent context menu
     e.preventDefault();
-    toast.error('Right-click is disabled for security', {
-      duration: 2000,
-      icon: '🔒'
-    });
+    
+    // Only show toast on desktop (mouse right-click), not on mobile touch-and-hold
+    // Check if it's a mouse event (desktop) vs touch event (mobile)
+    const isMouseEvent = e.pointerType === 'mouse' || (!e.pointerType && !isMobile);
+    
+    if (isMouseEvent) {
+      toast.error('Right-click is disabled for security', {
+        duration: 2000,
+        icon: '🔒'
+      });
+    }
+    
     return false;
   };
 

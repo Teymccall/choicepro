@@ -65,30 +65,29 @@ export default function Signup() {
   };
 
   return (
-    <div className="flex h-screen items-center justify-center p-4 sm:p-6 lg:p-8 overflow-y-auto bg-white dark:bg-black">
-      <div className="w-full max-w-md space-y-6 rounded-lg p-6 shadow-lg bg-white dark:bg-black">
-        <div className="text-center">
-          <img
-            className="mx-auto h-10 w-auto"
-            src="/choice.png"
-            alt="Choice App"
-          />
-          <h2 className="mt-4 text-2xl font-bold tracking-tight text-primary-600 dark:text-primary-400">
-            Create your account
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-            Already have an account?{' '}
-            <Link to="/login" className="font-medium text-primary-600 hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300">
-              Sign in
-            </Link>
-          </p>
-        </div>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-[#0b0c1a] via-[#181b3a] to-[#3b2a6d] text-white">
+      <div className="flex-1 flex flex-col items-center justify-center px-5 py-10 sm:py-12">
+        <div className="w-full max-w-sm sm:max-w-md bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl px-6 sm:px-8 py-8 space-y-6">
+          <div className="flex flex-col items-center text-center space-y-4">
+            <div className="h-16 w-16 sm:h-18 sm:w-18 rounded-2xl bg-white/18 flex items-center justify-center shadow-inner">
+              <img
+                src="/choice_app_logo.png"
+                alt="Choice"
+                className="h-10 w-10 sm:h-12 sm:w-12 object-contain"
+              />
+            </div>
+            <div className="space-y-2">
+              <h1 className="text-xl sm:text-2xl font-semibold">Create your account</h1>
+              <p className="text-xs sm:text-sm text-white/70">
+                Secure your space on Choice and start building together with your partner or team.
+              </p>
+            </div>
+          </div>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSignup}>
-          <div className="space-y-3 rounded-md">
-            <div>
-              <label htmlFor="displayName" className="sr-only">
-                Display Name
+          <form className="space-y-4" onSubmit={handleSignup}>
+            <div className="space-y-2">
+              <label htmlFor="displayName" className="block text-xs font-semibold uppercase tracking-[0.25em] text-white/55">
+                Display name
               </label>
               <input
                 id="displayName"
@@ -97,12 +96,13 @@ export default function Signup() {
                 required
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                className="relative block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-black px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:z-10 focus:border-primary-500 focus:outline-none focus:ring-primary-500"
-                placeholder="Display Name"
+                className="w-full px-4 py-2.5 rounded-full bg-white/92 text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-white/80 focus:border-transparent transition-all"
+                placeholder="How should we address you?"
               />
             </div>
-            <div>
-              <label htmlFor="email" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-[0.25em] text-white/55">
                 Email address
               </label>
               <input
@@ -113,81 +113,109 @@ export default function Signup() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="relative block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-black px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:z-10 focus:border-primary-500 focus:outline-none focus:ring-primary-500"
-                placeholder="Email address"
+                className="w-full px-4 py-2.5 rounded-full bg-white/92 text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-white/80 focus:border-transparent transition-all"
+                placeholder="you@example.com"
               />
             </div>
-            <div className="relative">
-              <label htmlFor="password" className="sr-only">
+
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-[0.25em] text-white/55">
                 Password
               </label>
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setPasswordFocus(true)}
-                onBlur={() => setPasswordFocus(false)}
-                className="relative block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-black px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:z-10 focus:border-primary-500 focus:outline-none focus:ring-primary-500"
-                placeholder="Password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
-              >
-                {showPassword ? (
-                  <EyeSlashIcon className="h-5 w-5" />
-                ) : (
-                  <EyeIcon className="h-5 w-5" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Password requirements */}
-          <div className={`space-y-1 transition-all duration-200 ${passwordFocus ? 'opacity-100' : 'opacity-0'}`}>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Password requirements:</p>
-            <ul className="space-y-0.5">
-              {requirements.map((req, index) => (
-                <li
-                  key={index}
-                  className="flex items-center text-sm"
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setPasswordFocus(true)}
+                  onBlur={() => setPasswordFocus(false)}
+                  className="w-full px-4 py-2.5 pr-10 rounded-full bg-white/92 text-gray-900 placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-white/80 focus:border-transparent transition-all"
+                  placeholder="Create a strong password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {req.met ? (
-                    <CheckIcon className="h-4 w-4 text-green-500 mr-2" />
+                  {showPassword ? (
+                    <EyeSlashIcon className="h-4 w-4" />
                   ) : (
-                    <XMarkIcon className="h-4 w-4 text-red-500 mr-2" />
+                    <EyeIcon className="h-4 w-4" />
                   )}
-                  <span className={req.met ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
-                    {req.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {error && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3">
-              <div className="flex">
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800 dark:text-red-400">{error}</h3>
-                </div>
+                </button>
               </div>
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={isLoading || !requirements.every(req => req.met)}
-            className="group relative flex w-full justify-center rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 dark:ring-offset-black"
-          >
-            {isLoading ? 'Creating account...' : 'Sign up'}
-          </button>
-        </form>
+            {passwordFocus && password && (
+              <div className="rounded-xl bg-white/8 border border-white/10 px-4 py-3 space-y-1">
+                <p className="text-[11px] font-semibold text-white/75">Password must include</p>
+                <ul className="space-y-1">
+                  {requirements.map((req, index) => (
+                    <li key={index} className="flex items-center text-[11px] text-white/70">
+                      {req.met ? (
+                        <CheckIcon className="h-3.5 w-3.5 text-emerald-300 mr-2" />
+                      ) : (
+                        <XMarkIcon className="h-3.5 w-3.5 text-white/30 mr-2" />
+                      )}
+                      <span className={req.met ? 'text-emerald-200' : 'text-white/65'}>
+                        {req.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {error && (
+              <div className="rounded-xl bg-red-500/10 border border-red-500/40 px-3 py-2">
+                <p className="text-xs text-red-100">{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoading || !requirements.every(req => req.met)}
+              className="w-full px-4 py-2.5 rounded-full bg-white text-gray-900 font-semibold text-sm shadow-md hover:bg-white/95 focus:outline-none focus:ring-2 focus:ring-white/70 focus:ring-offset-2 focus:ring-offset-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900" />
+                  <span>Creating account…</span>
+                </div>
+              ) : (
+                'Sign up'
+              )}
+            </button>
+          </form>
+
+          <div className="flex flex-col items-center gap-1 text-[11px] text-white/65">
+            <span>Already have an account?</span>
+            <Link
+              to="/login"
+              className="font-semibold text-white hover:text-white/85"
+            >
+              Log in instead
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 text-center text-[10px] text-white/50">
+          <div className="flex items-center justify-center gap-3">
+            <Link to="/terms" className="hover:text-white/80">
+              Terms of Use
+            </Link>
+            <span className="text-white/40">•</span>
+            <Link to="/privacy" className="hover:text-white/80">
+              Privacy Policy
+            </Link>
+          </div>
+        </div>
       </div>
     </div>
   );
-} 
+}
+ 

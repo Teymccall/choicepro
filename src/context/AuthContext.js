@@ -22,6 +22,7 @@ import {
   getDocs,
   writeBatch,
   updateDoc,
+  runTransaction,
   Timestamp,
   arrayUnion,
   arrayRemove,
@@ -49,6 +50,7 @@ import {
   TIMEOUT, 
   MAX_RETRY_ATTEMPTS, 
   INITIAL_RETRY_DELAY,
+  onFirestoreConnectionStateChange
 } from '../firebase/config';
 import { toast } from 'react-hot-toast';
 
@@ -172,6 +174,124 @@ export const AuthProvider = ({ children }) => {
   // Add connection state management
   const [connectionState, setConnectionState] = useState('checking');
   const connectionRetryCount = useRef(0);
+  const [firestoreConnectionState, setFirestoreConnectionState] = useState('initializing');
+  const snapshotRetryTimers = useRef(new Map());
+
+  // Monitor Firestore connection state
+  useEffect(() => {
+    const unsubscribe = onFirestoreConnectionStateChange((state) => {
+      setFirestoreConnectionState(state);
+      console.log('Firestore connection state:', state);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Helper function to create resilient snapshot listeners
+  const createResilientSnapshot = (query, onSuccess, onError, listenerId) => {
+    let retryCount = 0;
+    let unsubscribe = null;
+    let isActive = true;
+    
+    const setupListener = () => {
+      if (!isActive) return;
+      
+      try {
+        console.log(`[${listenerId}] Setting up snapshot listener (attempt ${retryCount + 1})`);
+        
+        unsubscribe = onSnapshot(query, 
+          (snapshot) => {
+            // Reset retry count on success
+            if (retryCount > 0) {
+              console.log(`[${listenerId}] Snapshot listener recovered after ${retryCount} retries`);
+            }
+            retryCount = 0;
+            
+            if (snapshotRetryTimers.current.has(listenerId)) {
+              clearTimeout(snapshotRetryTimers.current.get(listenerId));
+              snapshotRetryTimers.current.delete(listenerId);
+            }
+            
+            try {
+              onSuccess(snapshot);
+            } catch (callbackError) {
+              console.error(`[${listenerId}] Error in success callback:`, callbackError);
+            }
+          },
+          (error) => {
+            console.error(`[${listenerId}] Snapshot listener error:`, {
+              code: error.code,
+              message: error.message,
+              retryCount,
+              firestoreState: firestoreConnectionState
+            });
+            
+            // Handle specific error codes
+            if (error.code === 'permission-denied') {
+              console.error(`[${listenerId}] Permission denied - not retrying`);
+              onError(error);
+              return;
+            }
+            
+            // Don't retry if listener was deactivated
+            if (!isActive) {
+              console.log(`[${listenerId}] Listener deactivated, not retrying`);
+              return;
+            }
+            
+            // Retry with exponential backoff for network errors
+            if (retryCount < MAX_RETRY_ATTEMPTS) {
+              const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+              console.log(`[${listenerId}] Retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRY_ATTEMPTS})`);
+              
+              const timer = setTimeout(() => {
+                retryCount++;
+                if (unsubscribe) {
+                  try {
+                    unsubscribe();
+                  } catch (e) {
+                    console.error(`[${listenerId}] Error unsubscribing:`, e);
+                  }
+                }
+                setupListener();
+              }, delay);
+              
+              snapshotRetryTimers.current.set(listenerId, timer);
+            } else {
+              console.error(`[${listenerId}] Max retries (${MAX_RETRY_ATTEMPTS}) reached`);
+              onError(error);
+            }
+          },
+          // Add options for better error handling
+          {
+            includeMetadataChanges: false
+          }
+        );
+      } catch (error) {
+        console.error(`[${listenerId}] Error setting up snapshot listener:`, error);
+        onError(error);
+      }
+    };
+    
+    setupListener();
+    
+    return () => {
+      console.log(`[${listenerId}] Cleaning up snapshot listener`);
+      isActive = false;
+      
+      if (unsubscribe) {
+        try {
+          unsubscribe();
+        } catch (e) {
+          console.error(`[${listenerId}] Error during cleanup:`, e);
+        }
+      }
+      
+      if (snapshotRetryTimers.current.has(listenerId)) {
+        clearTimeout(snapshotRetryTimers.current.get(listenerId));
+        snapshotRetryTimers.current.delete(listenerId);
+      }
+    };
+  };
 
   // Add listener for partner requests
   useEffect(() => {
@@ -184,55 +304,71 @@ export const AuthProvider = ({ children }) => {
       where('status', '==', 'pending')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const updatedRequests = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.expiresAt.toDate() > new Date()) {
-          updatedRequests.push({
-            id: doc.id,
-            ...data
-          });
-        }
-      });
-      
-      // Update the pending requests state
-      setPendingRequests(updatedRequests);
-    }, (error) => {
-      console.error('Error listening to partner requests:', error);
-    });
+    const unsubscribe = createResilientSnapshot(
+      q,
+      (snapshot) => {
+        const updatedRequests = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          if (data.expiresAt.toDate() > new Date()) {
+            updatedRequests.push({
+              id: doc.id,
+              ...data
+            });
+          }
+        });
+        
+        // Update the pending requests state
+        setPendingRequests(updatedRequests);
+      },
+      (error) => {
+        console.error('Error listening to partner requests:', error);
+      },
+      'partnerRequests'
+    );
 
     // Also listen for user's pending requests array
     const userRef = doc(db, 'users', user.uid);
-    const userUnsubscribe = onSnapshot(userRef, async (snapshot) => {
-      if (snapshot.exists()) {
-        const userData = snapshot.data();
-        if (userData.pendingRequests?.length > 0) {
-          // Fetch full request details
-          const requests = await Promise.all(
-            userData.pendingRequests.map(async (requestId) => {
-              const requestDoc = await getDoc(doc(db, 'partnerRequests', requestId));
-              if (requestDoc.exists()) {
-                const requestData = requestDoc.data();
-                // Only include pending requests where user is the recipient
-                if (requestData.status === 'pending' && 
-                    requestData.recipientId === user.uid && 
-                    requestData.expiresAt.toDate() > new Date()) {
-                  return {
-                    id: requestDoc.id,
-                    ...requestData
-                  };
+    const userUnsubscribe = createResilientSnapshot(
+      userRef,
+      async (snapshot) => {
+        if (snapshot.exists()) {
+          const userData = snapshot.data();
+          if (userData.pendingRequests?.length > 0) {
+            // Fetch full request details
+            const requests = await Promise.all(
+              userData.pendingRequests.map(async (requestId) => {
+                try {
+                  const requestDoc = await getDoc(doc(db, 'partnerRequests', requestId));
+                  if (requestDoc.exists()) {
+                    const requestData = requestDoc.data();
+                    // Only include pending requests where user is the recipient
+                    if (requestData.status === 'pending' && 
+                        requestData.recipientId === user.uid && 
+                        requestData.expiresAt.toDate() > new Date()) {
+                      return {
+                        id: requestDoc.id,
+                        ...requestData
+                      };
+                    }
+                  }
+                } catch (error) {
+                  console.error('Error fetching request:', error);
                 }
-              }
-              return null;
-            })
-          );
-          setPendingRequests(requests.filter(Boolean));
-        } else {
-          setPendingRequests([]);
+                return null;
+              })
+            );
+            setPendingRequests(requests.filter(Boolean));
+          } else {
+            setPendingRequests([]);
+          }
         }
-      }
-    });
+      },
+      (error) => {
+        console.error('Error listening to user pending requests:', error);
+      },
+      'userPendingRequests'
+    );
 
     return () => {
       unsubscribe();
@@ -344,28 +480,33 @@ export const AuthProvider = ({ children }) => {
       where('status', 'in', ['pending', 'accepted', 'declined'])
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'modified') {
-          const request = change.doc.data();
-          
-          // Show notification based on status change
-          if (request.status === 'declined') {
-            toast.error(`${request.recipientName || 'User'} has declined your connection request`, {
-              duration: 5000,
-              position: 'top-center',
-            });
-          } else if (request.status === 'accepted') {
-            toast.success(`${request.recipientName || 'User'} has accepted your connection request!`, {
-              duration: 5000,
-              position: 'top-center',
-            });
+    const unsubscribe = createResilientSnapshot(
+      q,
+      (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            const request = change.doc.data();
+            
+            // Show notification based on status change
+            if (request.status === 'declined') {
+              toast.error(`${request.recipientName || 'User'} has declined your connection request`, {
+                duration: 5000,
+                position: 'top-center',
+              });
+            } else if (request.status === 'accepted') {
+              toast.success(`${request.recipientName || 'User'} has accepted your connection request!`, {
+                duration: 5000,
+                position: 'top-center',
+              });
+            }
           }
-        }
-      });
-    }, (error) => {
-      console.error('Error listening to sent requests:', error);
-    });
+        });
+      },
+      (error) => {
+        console.error('Error listening to sent requests:', error);
+      },
+      'sentRequests'
+    );
 
     return () => unsubscribe();
   }, [user]);
@@ -384,7 +525,7 @@ export const AuthProvider = ({ children }) => {
       where('status', '==', 'pending')
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = createResilientSnapshot(q, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const request = change.doc.data();
@@ -515,7 +656,7 @@ export const AuthProvider = ({ children }) => {
       });
     }, (error) => {
       console.error('Error listening to incoming requests:', error);
-    });
+    }, 'incomingRequests');
 
     return () => unsubscribe();
   }, [user]);
@@ -791,23 +932,30 @@ export const AuthProvider = ({ children }) => {
       // Listen for partner updates in Firestore
       if (user) {
         const userRef = doc(db, 'users', user.uid);
-        const userUnsubscribe = onSnapshot(userRef, async (snapshot) => {
-          if (snapshot.exists()) {
-            const userData = snapshot.data();
-            if (!userData.partnerId) {
-              // If partner ID is null, user has been disconnected
-              setPartner(null);
-              // Clean up RTDB connection
-              await remove(userStatusRef.current);
-            } else if (userData.partnerId && (!partner || partner.uid !== userData.partnerId)) {
-              const partnerRef = doc(db, 'users', userData.partnerId);
-              const partnerDoc = await getDoc(partnerRef);
-              if (partnerDoc.exists()) {
-                setPartner(partnerDoc.data());
+        const userUnsubscribe = createResilientSnapshot(
+          userRef,
+          async (snapshot) => {
+            if (snapshot.exists()) {
+              const userData = snapshot.data();
+              if (!userData.partnerId) {
+                // If partner ID is null, user has been disconnected
+                setPartner(null);
+                // Clean up RTDB connection
+                await remove(userStatusRef.current);
+              } else if (userData.partnerId && (!partner || partner.uid !== userData.partnerId)) {
+                const partnerRef = doc(db, 'users', userData.partnerId);
+                const partnerDoc = await getDoc(partnerRef);
+                if (partnerDoc.exists()) {
+                  setPartner(partnerDoc.data());
+                }
               }
             }
-          }
-        });
+          },
+          (error) => {
+            console.error('Error listening to user partner updates:', error);
+          },
+          'userPartnerUpdates'
+        );
 
         listenerCleanups.current.push(userUnsubscribe);
       }
@@ -826,6 +974,10 @@ export const AuthProvider = ({ children }) => {
       // Clean up all listeners
       listenerCleanups.current.forEach(cleanup => cleanup());
       listenerCleanups.current = [];
+
+      // Clear all snapshot retry timers
+      snapshotRetryTimers.current.forEach((timer) => clearTimeout(timer));
+      snapshotRetryTimers.current.clear();
 
       // Clean up presence refs
       if (presenceRef.current) {
@@ -928,44 +1080,68 @@ export const AuthProvider = ({ children }) => {
             }
           }
 
+          // Set up real-time listener for user document changes (including partnerId)
+          const userDocUnsubscribe = createResilientSnapshot(
+            userRef,
+            async (docSnapshot) => {
+              if (docSnapshot.exists()) {
+                const userData = docSnapshot.data();
+                
+                // Update user data
+                setUser(prevUser => ({
+                  ...prevUser,
+                  ...userData
+                }));
+
+                // Check if partnerId changed and fetch partner data
+                if (userData.partnerId) {
+                  try {
+                    const partnerRef = doc(db, 'users', userData.partnerId);
+                    const partnerDoc = await getDoc(partnerRef);
+                    if (partnerDoc.exists()) {
+                      setPartner(partnerDoc.data());
+                    }
+                  } catch (error) {
+                    console.error('Error fetching partner data:', error);
+                  }
+                } else {
+                  // If partnerId is null, clear partner
+                  setPartner(null);
+                }
+
+                // Update active invite code
+                if (userData.inviteCodes && Array.isArray(userData.inviteCodes)) {
+                  const now = new Date();
+                  const activeCode = userData.inviteCodes
+                    .filter(code => !code.used && code.expiresAt.toDate() > now)
+                    .sort((a, b) => b.createdAt - a.createdAt)[0];
+                  
+                  if (activeCode) {
+                    setActiveInviteCode({
+                      code: activeCode.code,
+                      expiresAt: activeCode.expiresAt
+                    });
+                  } else {
+                    setActiveInviteCode(null);
+                  }
+                }
+              }
+            },
+            (error) => {
+              console.error('Error listening to user document:', error);
+            },
+            'userDocument'
+          );
+
+          // Store unsubscribe function in cleanup array
+          listenerCleanups.current.push(userDocUnsubscribe);
+
           // Try to set up database listeners, but don't let failure affect auth state
           try {
             await setupDatabaseListeners(user);
           } catch (error) {
             console.error('Error setting up database listeners:', error);
             // Continue even if listener setup fails
-          }
-
-          // Try to fetch partner data if it exists
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            if (userData.partnerId) {
-              try {
-                const partnerRef = doc(db, 'users', userData.partnerId);
-                const partnerDoc = await getDoc(partnerRef);
-                if (partnerDoc.exists()) {
-                  setPartner(partnerDoc.data());
-                }
-              } catch (error) {
-                console.error('Error fetching partner data:', error);
-                // Continue even if partner fetch fails
-              }
-            }
-
-            // Try to restore active invite code
-            if (userData.inviteCodes && Array.isArray(userData.inviteCodes)) {
-              const now = new Date();
-              const activeCode = userData.inviteCodes
-                .filter(code => !code.used && code.expiresAt.toDate() > now)
-                .sort((a, b) => b.createdAt - a.createdAt)[0];
-              
-              if (activeCode) {
-                setActiveInviteCode({
-                  code: activeCode.code,
-                  expiresAt: activeCode.expiresAt
-                });
-              }
-            }
           }
         } catch (error) {
           console.error('Error in auth state restoration:', error);
@@ -1169,76 +1345,106 @@ export const AuthProvider = ({ children }) => {
       // Normalize the invite code
       const normalizedCode = inviteCode.trim().toUpperCase();
 
-      // First find the user with this invite code
-      const usersRef = collection(db, 'users');
-      const querySnapshot = await getDocs(usersRef);
-      let partnerDoc = null;
-      
-      // Add some buffer time to account for slight time differences
-      const now = new Date();
-      now.setMinutes(now.getMinutes() - 1); // 1 minute buffer
-      
-      // Search through all users to find matching invite code
-      for (const doc of querySnapshot.docs) {
-        const userData = doc.data();
-        if (userData.inviteCodes && Array.isArray(userData.inviteCodes)) {
-          const validCode = userData.inviteCodes.find(code => {
-            const isMatch = code.code === normalizedCode;
-            const isUnused = !code.used;
-            const expiryDate = code.expiresAt.toDate();
-            const isNotExpired = expiryDate > now;
+      // Use atomic transaction to prevent race conditions
+      const result = await runTransaction(db, async (transaction) => {
+        // Find the user with this invite code atomically
+        const usersRef = collection(db, 'users');
+        const querySnapshot = await getDocs(usersRef);
+        let partnerDocRef = null;
+        let partnerData = null;
+        let validCodeIndex = -1;
+        
+        // Add buffer time to account for slight time differences
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - 1); // 1 minute buffer
+        
+        // Search through all users to find matching invite code
+        for (const docSnapshot of querySnapshot.docs) {
+          const userData = docSnapshot.data();
+          if (userData.inviteCodes && Array.isArray(userData.inviteCodes)) {
+            const codeIndex = userData.inviteCodes.findIndex(code => {
+              const isMatch = code.code === normalizedCode;
+              const isUnused = !code.used;
+              const expiryDate = code.expiresAt.toDate();
+              const isNotExpired = expiryDate > now;
+              
+              return isMatch && isUnused && isNotExpired;
+            });
             
-            return isMatch && isUnused && isNotExpired;
-          });
-          
-          if (validCode) {
-            partnerDoc = { id: doc.id, ...userData };
-            break;
+            if (codeIndex !== -1) {
+              partnerDocRef = doc(db, 'users', docSnapshot.id);
+              partnerData = { id: docSnapshot.id, ...userData };
+              validCodeIndex = codeIndex;
+              break;
+            }
           }
         }
-      }
 
-      if (!partnerDoc) {
-        throw new Error('Invalid or expired invite code. Please try again with a valid code.');
-      }
+        if (!partnerData) {
+          throw new Error('Invalid or expired invite code. Please try again with a valid code.');
+        }
 
-      if (partnerDoc.id === user.uid) {
-        throw new Error('You cannot connect with yourself.');
-      }
+        if (partnerData.id === user.uid) {
+          throw new Error('You cannot connect with yourself.');
+        }
 
-      // Use a batch write to update both users atomically
-      const batch = writeBatch(db);
+        // Read current state of both documents in transaction
+        const userRef = doc(db, 'users', user.uid);
+        const currentUserDoc = await transaction.get(userRef);
+        const currentPartnerDoc = await transaction.get(partnerDocRef);
 
-      // Update current user's document
-      const userRef = doc(db, 'users', user.uid);
-      batch.update(userRef, {
-        partnerId: partnerDoc.id,
-        partnerDisplayName: partnerDoc.displayName,
-        lastUpdated: Timestamp.now()
+        if (!currentUserDoc.exists() || !currentPartnerDoc.exists()) {
+          throw new Error('User documents not found.');
+        }
+
+        const currentUserData = currentUserDoc.data();
+        const currentPartnerData = currentPartnerDoc.data();
+
+        // Double-check the code is still valid and unused
+        const currentCode = currentPartnerData.inviteCodes?.[validCodeIndex];
+        if (!currentCode || currentCode.used || currentCode.code !== normalizedCode) {
+          throw new Error('Invite code has already been used or is no longer valid.');
+        }
+
+        // Check if either user is already connected
+        if (currentUserData.partnerId) {
+          throw new Error('You are already connected with a partner. Please disconnect first.');
+        }
+
+        if (currentPartnerData.partnerId) {
+          throw new Error('This partner is already connected with someone else.');
+        }
+
+        // Update invite codes array with the code marked as used
+        const updatedInviteCodes = [...currentPartnerData.inviteCodes];
+        updatedInviteCodes[validCodeIndex] = {
+          ...currentCode,
+          used: true,
+          usedBy: user.uid,
+          usedAt: Timestamp.now()
+        };
+
+        // Atomically update both users
+        transaction.update(userRef, {
+          partnerId: partnerData.id,
+          partnerDisplayName: partnerData.displayName,
+          lastUpdated: Timestamp.now()
+        });
+
+        transaction.update(partnerDocRef, {
+          inviteCodes: updatedInviteCodes,
+          partnerId: user.uid,
+          partnerDisplayName: user.displayName,
+          lastUpdated: Timestamp.now()
+        });
+
+        return partnerData;
       });
 
-      // Update partner's document and mark invite code as used
-      const partnerRef = doc(db, 'users', partnerDoc.id);
-      const updatedInviteCodes = partnerDoc.inviteCodes.map(code => 
-        code.code === normalizedCode 
-          ? { 
-              ...code, 
-              used: true, 
-              usedBy: user.uid, 
-              usedAt: Timestamp.now() 
-            }
-          : code
-      );
+      const partnerDoc = result;
 
-      batch.update(partnerRef, {
-        inviteCodes: updatedInviteCodes,
-        partnerId: user.uid,
-        partnerDisplayName: user.displayName,
-        lastUpdated: Timestamp.now()
-      });
-
-      // Commit the batch
-      await batch.commit();
+      // Wait a moment for Firestore to propagate the changes
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // First update current user's connection status
       const userConnectionRef = ref(rtdb, `connections/${user.uid}`);
@@ -1265,7 +1471,19 @@ export const AuthProvider = ({ children }) => {
       // Set up database listeners for the new partnership
       await setupDatabaseListeners(user);
 
+      // Force refresh current user data to reflect partnership
+      const userRef = doc(db, 'users', user.uid);
+      const freshUserDoc = await getDoc(userRef);
+      if (freshUserDoc.exists()) {
+        const freshUserData = freshUserDoc.data();
+        setUser(prevUser => ({
+          ...prevUser,
+          ...freshUserData
+        }));
+      }
+
       // Get fresh partner data and update state
+      const partnerRef = doc(db, 'users', partnerDoc.id);
       const freshPartnerDoc = await getDoc(partnerRef);
       if (freshPartnerDoc.exists()) {
         setPartner({
@@ -1296,8 +1514,18 @@ export const AuthProvider = ({ children }) => {
         throw new Error('You are already connected with a partner. Please disconnect first to generate a new code.');
       }
 
-      // Generate a more reliable code format
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      // Generate a cryptographically secure code with collision detection
+      const generateSecureCode = () => {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const array = new Uint8Array(6);
+        crypto.getRandomValues(array);
+        return Array.from(array, byte => chars[byte % chars.length]).join('');
+      };
+
+      // Try up to 10 times to generate a unique code
+      let code;
+      let attempts = 0;
+      const maxAttempts = 10;
       const now = Timestamp.now();
       // Add 10 minutes instead of 5 to account for time differences
       const expiresAt = Timestamp.fromDate(new Date(Date.now() + (10 * 60 * 1000))); 
@@ -1308,10 +1536,54 @@ export const AuthProvider = ({ children }) => {
       
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        // Filter out expired and used codes
+        // Filter out expired and used codes (this also cleans up the document)
         const validCodes = (userData.inviteCodes || []).filter(existingCode => 
           !existingCode.used && existingCode.expiresAt.toDate() > now.toDate()
         );
+
+        // Clean up expired codes if there are many accumulated
+        const totalCodes = (userData.inviteCodes || []).length;
+        if (totalCodes > validCodes.length + 5) {
+          // If we have more than 5 expired codes, clean them up
+          await updateDoc(userRef, {
+            inviteCodes: validCodes
+          });
+        }
+
+        // Generate unique code with collision detection
+        while (attempts < maxAttempts) {
+          code = generateSecureCode();
+          
+          // Check for collisions in all users' invite codes
+          const usersRef = collection(db, 'users');
+          const querySnapshot = await getDocs(usersRef);
+          let codeExists = false;
+          
+          for (const doc of querySnapshot.docs) {
+            const docData = doc.data();
+            if (docData.inviteCodes && Array.isArray(docData.inviteCodes)) {
+              const hasMatchingCode = docData.inviteCodes.some(existingCode => 
+                existingCode.code === code && 
+                !existingCode.used && 
+                existingCode.expiresAt.toDate() > now.toDate()
+              );
+              if (hasMatchingCode) {
+                codeExists = true;
+                break;
+              }
+            }
+          }
+          
+          if (!codeExists) {
+            break; // Found unique code
+          }
+          
+          attempts++;
+        }
+
+        if (attempts >= maxAttempts) {
+          throw new Error('Unable to generate a unique invite code. Please try again.');
+        }
         
         // Create the new invite code object
         const newInviteCode = {
@@ -1326,9 +1598,6 @@ export const AuthProvider = ({ children }) => {
         await updateDoc(userRef, {
           inviteCodes: [...validCodes, newInviteCode]
         });
-
-        // Wait for a moment to ensure the code is saved
-        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Set activeInviteCode with the Timestamp object directly
         setActiveInviteCode({

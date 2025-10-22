@@ -163,37 +163,61 @@
     },
 
     "calls": {
-      "$uid": {
-        ".read": "$uid === auth.uid",
-        ".write": "auth != null",
-        "callerId": {
-          ".validate": "newData.isString()"
-        },
-        "calleeId": {
-          ".validate": "newData.isString()"
+      ".indexOn": ["recipient"],
+      "$callId": {
+        ".read": "auth != null && (data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
+        ".write": "auth != null && (!data.exists() && newData.child('caller').val() === auth.uid || data.exists() && data.child('caller').val() === auth.uid)",
+        ".validate": "newData.hasChildren(['caller','recipient','type','status','createdAt'])",
+        "caller": {
+          ".validate": "newData.isString() && newData.val() === auth.uid"
         },
         "callerName": {
           ".validate": "newData.isString()"
         },
-        "calleeName": {
+        "callerPhotoURL": {
           ".validate": "newData.isString()"
         },
-        "callType": {
+        "recipient": {
+          ".validate": "newData.isString()"
+        },
+        "recipientName": {
+          ".validate": "newData.isString()"
+        },
+        "recipientPhotoURL": {
+          ".validate": "newData.isString()"
+        },
+        "type": {
           ".validate": "newData.val() === 'audio' || newData.val() === 'video'"
         },
-        "roomID": {
-          ".validate": "newData.isString()"
-        },
         "status": {
-          ".validate": "newData.val() === 'ringing' || newData.val() === 'calling' || newData.val() === 'active' || newData.val() === 'ended'"
+          ".validate": "newData.val() === 'ringing' || newData.val() === 'calling' || newData.val() === 'active' || newData.val() === 'rejected' || newData.val() === 'ended'"
         },
-        "timestamp": {
+        "createdAt": {
           ".validate": "newData.isNumber()"
         },
         "acceptedAt": {
-          ".validate": "newData.isNumber()"
+          ".validate": "!newData.exists() || newData.isNumber()"
+        },
+        "endedAt": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        },
+        "offer": {
+          ".validate": "!newData.exists() || newData.hasChildren(['type','sdp'])"
+        },
+        "answer": {
+          ".validate": "!newData.exists() || newData.hasChildren(['type','sdp'])"
+        },
+        "callerCandidates": {
+          "$candidateId": {
+            ".validate": "newData.hasChildren(['candidate','sdpMid','sdpMLineIndex'])"
+          }
+        },
+        "recipientCandidates": {
+          "$candidateId": {
+            ".validate": "newData.hasChildren(['candidate','sdpMid','sdpMLineIndex'])"
+          }
         }
       }
     }
   }
-} 
+}

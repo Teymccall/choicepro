@@ -6,16 +6,20 @@ import { rtdb } from '../firebase/config';
 import { cookieManager } from '../utils/cookieManager';
 import FloatingNav from './FloatingNav';
 import Navigation from './Navigation';
+import VideoCall from './VideoCall';
+import IncomingCall from './IncomingCall';
+import { useWebRTCContext } from '../context/WebRTCContext';
 
 const Layout = ({ children }) => {
   const { user, partner } = useAuth();
+  const webRTC = useWebRTCContext();
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
   const isHomePage = location.pathname === '/';
   const isChatPage = location.pathname === '/chat';
 
-  // Don't show navigation on login page
-  const showNav = user && !isLoginPage;
+  // Don't show navigation on login page or chat page
+  const showNav = user && !isLoginPage && !isChatPage;
 
   // NOTE: Call management now handled by CallManager component in App.js (using ZegoCloud)
 
@@ -131,7 +135,37 @@ const Layout = ({ children }) => {
         {children}
       </main>
 
-      {/* NOTE: All calls now handled by CallManager (ZegoCloud) in App.js */}
+      {/* Incoming call prompt */}
+      {webRTC && webRTC.callStatus === 'ringing' && webRTC.incomingCall && (
+        <IncomingCall
+          callerName={webRTC.incomingCall.data?.callerName || 'Unknown caller'}
+          callerPhotoURL={webRTC.incomingCall.data?.callerPhotoURL}
+          callType={webRTC.incomingCall.data?.type || webRTC.callType || 'audio'}
+          onAccept={webRTC.acceptIncomingCall}
+          onReject={webRTC.declineIncomingCall}
+        />
+      )}
+
+      {/* WebRTC Video Call UI */}
+      {webRTC && (webRTC.callStatus === 'calling' || webRTC.callStatus === 'active') && (
+        <VideoCall
+          localVideoRef={webRTC.localVideoRef}
+          remoteVideoRef={webRTC.remoteVideoRef}
+          callStatus={webRTC.callStatus}
+          callType={webRTC.callType}
+          isAudioEnabled={webRTC.isAudioEnabled}
+          isVideoEnabled={webRTC.isVideoEnabled}
+          isSpeakerOn={webRTC.isSpeakerOn}
+          callDuration={webRTC.callDuration}
+          connectionQuality={webRTC.connectionQuality}
+          partnerName={partner?.displayName || 'Partner'}
+          partnerPhotoURL={partner?.photoURL || ''}
+          onEndCall={webRTC.endCall}
+          onToggleAudio={webRTC.toggleAudio}
+          onToggleVideo={webRTC.toggleVideo}
+          onToggleSpeaker={webRTC.toggleSpeaker}
+        />
+      )}
     </div>
   );
 };

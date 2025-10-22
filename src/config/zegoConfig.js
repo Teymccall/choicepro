@@ -1,7 +1,7 @@
 // ZegoCloud Configuration
 export const ZEGO_CONFIG = {
-  appID: 903806736,
-  serverSecret: 'fc435d143bdc4b960915f221edd52a12',
+  appID: parseInt(process.env.REACT_APP_ZEGO_APP_ID) || 903806736,
+  serverSecret: process.env.REACT_APP_ZEGO_SERVER_SECRET || 'fc435d143bdc4b960915f221edd52a12',
   
   // Common settings for both audio and video calls
   commonSettings: {
