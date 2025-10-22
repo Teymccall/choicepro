@@ -481,15 +481,24 @@ export const useWebRTC = (user, partner) => {
       // Create answer
       console.log('📝 Creating answer...');
       const answer = await connection.createAnswer();
-      console.log('✅ Answer created');
+      console.log('✅ Answer created:', answer);
+      
+      // Small delay to ensure ICE candidates are gathered
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       const callRef = ref(rtdb, `calls/${callId}`);
-      await update(callRef, {
-        answer,
-        status: 'active',
-        answeredAt: Date.now()
-      });
-      console.log('✅ Call status updated to active in Firebase');
+      console.log('📤 Updating Firebase with answer...');
+      try {
+        await update(callRef, {
+          answer,
+          status: 'active',
+          answeredAt: Date.now()
+        });
+        console.log('✅ Call status updated to active in Firebase');
+      } catch (fbError) {
+        console.error('❌ Firebase update error:', fbError);
+        throw new Error(`Firebase error: ${fbError.message}`);
+      }
 
       // NOW set local status to active
       setCallStatus('active');
