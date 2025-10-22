@@ -89,6 +89,8 @@ const TopicChat = ({ topic, onClose }) => {
   const cameraInputRef = useRef(null);
   const messageRefs = useRef({});
   const inputRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const inputContainerRef = useRef(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -631,6 +633,34 @@ const TopicChat = ({ topic, onClose }) => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      const messageRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
+      await remove(messageRef);
+      toast.success('Message deleted');
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      toast.error('Failed to delete message');
+    }
+  };
+
+  const handleEditMessage = async (messageId, newText) => {
+    try {
+      const trimmedText = newText.trim();
+      const sanitizedText = sanitizeInput(trimmedText);
+      const messageRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
+      await update(messageRef, {
+        text: sanitizedText,
+        edited: true,
+        editedAt: Date.now()
+      });
+      toast.success('Message updated');
+    } catch (error) {
+      console.error('Error editing message:', error);
+      toast.error('Failed to update message');
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const trimmedMessage = newMessage.trim();
@@ -852,101 +882,6 @@ const TopicChat = ({ topic, onClose }) => {
     } catch (error) {
       console.error('Error sending voice note:', error);
       toast.error('Failed to send voice note');
-    }
-  };
-
-  const handleDeleteMessage = async (messageId, deleteForEveryone) => {
-    console.log('🗑️ DELETE MESSAGE CALLED:', { messageId, deleteForEveryone, userId: user.uid, topicId: topic.id });
-    
-    try {
-      const loadingToast = toast.loading('Deleting message...');
-      
-      const chatRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
-      const messageSnapshot = await get(chatRef);
-      
-      if (!messageSnapshot.exists()) {
-        console.error('❌ Message not found in Firebase');
-        toast.dismiss(loadingToast);
-        toast.error('Message not found');
-        return;
-      }
-
-      const messageData = messageSnapshot.val();
-      console.log('📄 Message data:', messageData);
-      
-      if (deleteForEveryone && messageData.userId !== user.uid) {
-        console.error('❌ Cannot delete for everyone - not your message');
-        toast.dismiss(loadingToast);
-        toast.error('You can only delete your own messages for everyone');
-        return;
-      }
-      
-      if (deleteForEveryone) {
-        console.log('🌍 Deleting for EVERYONE...');
-        await update(chatRef, {
-          deletedForEveryone: true,
-          deletedBy: user.uid,
-          deletedAt: serverTimestamp()
-        });
-        console.log('✅ Updated message with deletedForEveryone flag');
-        
-        setMessages(prevMessages => 
-          prevMessages.map(msg => 
-            msg.id === messageId 
-              ? { ...msg, deletedForEveryone: true, deletedBy: user.uid } 
-              : msg
-          )
-        );
-        
-        toast.dismiss(loadingToast);
-        toast.success('Message deleted for everyone');
-      } else {
-        console.log('👤 Deleting for ME only...');
-        const userDeletedRef = ref(rtdb, `deletedMessages/${user.uid}/${topic.id}/${messageId}`);
-        const deletePath = `deletedMessages/${user.uid}/${topic.id}/${messageId}`;
-        console.log('📍 Saving to path:', deletePath);
-        
-        await set(userDeletedRef, serverTimestamp());
-        console.log('✅ Saved to deletedMessages');
-        
-        // Verify it was saved
-        const verifySnapshot = await get(userDeletedRef);
-        console.log('🔍 Verification - exists?', verifySnapshot.exists(), 'value:', verifySnapshot.val());
-        
-        // Message will be filtered out automatically by the listener
-        toast.dismiss(loadingToast);
-        toast.success('Message deleted for you');
-      }
-    } catch (error) {
-      console.error('❌ Error deleting message:', error);
-      toast.error('Failed to delete message. Please try again.');
-    }
-  };
-
-  const handleEditMessage = async (messageId, newText) => {
-    try {
-      const loadingToast = toast.loading('Saving changes...');
-      
-      const messageRef = ref(rtdb, `topicChats/${topic.id}/${messageId}`);
-      await update(messageRef, {
-        text: newText,
-        edited: true,
-        editedAt: serverTimestamp()
-      });
-      
-      setMessages(prevMessages => 
-        prevMessages.map(msg => 
-          msg.id === messageId 
-            ? { ...msg, text: newText, edited: true } 
-            : msg
-        )
-      );
-      
-      toast.dismiss(loadingToast);
-      toast.success('Message updated successfully');
-    } catch (error) {
-      console.error('Error editing message:', error);
-      toast.error('Failed to edit message. Please try again.');
     }
   };
 
@@ -1518,7 +1453,14 @@ const TopicChat = ({ topic, onClose }) => {
   }
 
   return (
-    <div className="flex flex-col h-dvh w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
+    <div
+      ref={chatContainerRef}
+      className="flex flex-col h-dvh w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black"
+      style={{
+        minHeight: 'var(--chat-viewport-height, 100dvh)',
+        paddingTop: 'var(--chat-viewport-offset-top, 0px)'
+      }}
+    >
       {/* Chat Header - Fixed with safe area */}
       <div 
         className="flex-shrink-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg sticky top-0 z-10"
@@ -1682,10 +1624,10 @@ const TopicChat = ({ topic, onClose }) => {
     style={{ 
       backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
       backgroundAttachment: "fixed",
-        scrollbarWidth: 'thin',
-        scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
-      }}
-    >
+      scrollbarWidth: 'thin',
+      scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
+    }}
+  >
       <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 space-y-1.5 sm:space-y-2 max-w-3xl mx-auto w-full">
         {messages.map((message) => (
           <Message
@@ -1719,9 +1661,11 @@ const TopicChat = ({ topic, onClose }) => {
 
     {/* Input Container - Fixed with safe area for keyboard */}
     <div 
+      ref={inputContainerRef}
       className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg border-t border-gray-200 dark:border-gray-700"
       style={{
-        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)'
+        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',
+        paddingTop: 'max(env(safe-area-inset-bottom), 0px)'
       }}
     >
       {(replyingTo || selectedFile || recordedAudio) && (
