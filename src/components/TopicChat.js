@@ -1197,26 +1197,34 @@ const TopicChat = ({ topic, onClose }) => {
   }, [user?.uid, partner?.uid, topic?.id]);
   // ============ END SCREENSHOT PROTECTION ============
 
-  // Add this useEffect for mobile viewport handling
+  // Sync layout height with visual viewport (fixes iOS keyboard overlap)
   useEffect(() => {
-    const setVH = () => {
-      // First we get the viewport height and we multiple it by 1% to get a value for a vh unit
-      const vh = window.innerHeight * 0.01;
-      // Then we set the value in the --vh custom property to the root of the document
-      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    const viewport = window.visualViewport;
+
+    const updateViewportMetrics = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      const offsetTop = viewport?.offsetTop ?? 0;
+      const offsetLeft = viewport?.offsetLeft ?? 0;
+
+      if (chatContainerRef.current) {
+        chatContainerRef.current.style.setProperty('--chat-viewport-height', `${height}px`);
+        chatContainerRef.current.style.setProperty('--chat-viewport-offset-top', `${offsetTop}px`);
+        chatContainerRef.current.style.setProperty('--chat-viewport-offset-left', `${offsetLeft}px`);
+      }
     };
 
-    // Initial set
-    setVH();
+    updateViewportMetrics();
 
-    // Add event listeners
-    window.addEventListener('resize', setVH);
-    window.addEventListener('orientationchange', setVH);
+    viewport?.addEventListener('resize', updateViewportMetrics);
+    viewport?.addEventListener('scroll', updateViewportMetrics);
+    window.addEventListener('resize', updateViewportMetrics);
+    window.addEventListener('orientationchange', updateViewportMetrics);
 
-    // Cleanup
     return () => {
-      window.removeEventListener('resize', setVH);
-      window.removeEventListener('orientationchange', setVH);
+      viewport?.removeEventListener('resize', updateViewportMetrics);
+      viewport?.removeEventListener('scroll', updateViewportMetrics);
+      window.removeEventListener('resize', updateViewportMetrics);
+      window.removeEventListener('orientationchange', updateViewportMetrics);
     };
   }, []);
 
@@ -1455,10 +1463,12 @@ const TopicChat = ({ topic, onClose }) => {
   return (
     <div
       ref={chatContainerRef}
-      className="flex flex-col h-dvh w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black"
+      className="flex flex-col w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black"
       style={{
         minHeight: 'var(--chat-viewport-height, 100dvh)',
-        paddingTop: 'var(--chat-viewport-offset-top, 0px)'
+        height: 'var(--chat-viewport-height, 100dvh)',
+        paddingTop: 'var(--chat-viewport-offset-top, 0px)',
+        marginLeft: 'var(--chat-viewport-offset-left, 0px)'
       }}
     >
       {/* Chat Header - Fixed with safe area */}

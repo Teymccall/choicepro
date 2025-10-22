@@ -419,11 +419,9 @@ export const AuthProvider = ({ children }) => {
     if (!user) throw new Error('You must be logged in to send a partner request');
     
     try {
-      const batch = writeBatch(db);
-      
-      // Create the request document
       const requestRef = doc(collection(db, 'partnerRequests'));
-      batch.set(requestRef, {
+      
+      await setDoc(requestRef, {
         senderId: user.uid,
         senderName: user.displayName || user.email,
         senderEmail: user.email,
@@ -433,14 +431,6 @@ export const AuthProvider = ({ children }) => {
         createdAt: firestoreTimestamp(),
         expiresAt: Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000)) // 30 minutes expiry
       });
-      
-      // Update the recipient's requests array
-      const recipientRef = doc(db, 'users', targetUserId);
-      batch.update(recipientRef, {
-        pendingRequests: arrayUnion(requestRef.id)
-      });
-      
-      await batch.commit();
       
       // Create notification in Realtime Database for recipient
       // Use requestRef.id as the key to prevent duplicates
