@@ -1465,9 +1465,9 @@ const TopicChat = ({ topic, onClose }) => {
       ref={chatContainerRef}
       className="flex flex-col h-full w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black overflow-hidden"
     >
-      {/* Chat Header - Won't shrink when keyboard appears */}
+      {/* Chat Header - Fixed at top, won't scroll away */}
       <div 
-        className="shrink-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg z-10"
+        className="shrink-0 sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg z-50"
         style={{
           paddingTop: 'max(env(safe-area-inset-top), 0px)'
         }}
