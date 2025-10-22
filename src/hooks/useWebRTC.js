@@ -30,8 +30,8 @@ export const useWebRTC = (user, partner) => {
   const MAX_RECONNECTION_ATTEMPTS = 3;
   const isEndingCallRef = useRef(false);
   const isRejectingCallRef = useRef(false);
-  const isStartingCallRef = useRef(false);
-  const isAnsweringCallRef = useRef(false);
+  const callInitializingRef = useRef(false);
+  const lastCallIdRef = useRef(null);
 
   // Initialize WebRTC connection (attemptReconnection defined later)
   const initializeConnection = useCallback(() => {
@@ -86,8 +86,15 @@ export const useWebRTC = (user, partner) => {
               }, 2000);
             }
           } else if (state === 'failed') {
-            console.log('Connection failed');
+            console.log('Connection failed - call status:', callStatus);
             setConnectionQuality('poor');
+            
+            // Don't end call immediately if we're still in 'calling' state (initial connection)
+            // Give it time to establish connection
+            if (callStatus === 'calling') {
+              console.log('⏳ Still establishing initial connection, not ending call yet');
+              return;
+            }
             
             // Attempt reconnection for failed state (inline to avoid dependency)
             if (callStatus === 'active' && reconnectionAttemptRef.current < MAX_RECONNECTION_ATTEMPTS) {
@@ -249,13 +256,13 @@ export const useWebRTC = (user, partner) => {
       return;
     }
 
-    // Prevent duplicate call starts
-    if (isStartingCallRef.current) {
-      console.log('⚠️ startCall already in progress, skipping duplicate call');
+    // Prevent duplicate call starts with debounce
+    if (callInitializingRef.current) {
+      console.log('⚠️ Call initialization already in progress');
       return;
     }
     
-    isStartingCallRef.current = true;
+    callInitializingRef.current = true;
 
     // Close permission prompt
     setShowPermissionPrompt(false);
@@ -389,6 +396,12 @@ export const useWebRTC = (user, partner) => {
     } catch (error) {
       console.error('Error starting call:', error);
       
+      // Cleanup on error
+      if (webRTCConnectionRef.current) {
+        webRTCConnectionRef.current.close();
+        webRTCConnectionRef.current = null;
+      }
+      
       // Display detailed error message
       if (error.details) {
         toast.error(
@@ -403,9 +416,12 @@ export const useWebRTC = (user, partner) => {
       }
       
       setCallStatus('idle');
+      setCurrentCallId(null);
     } finally {
-      // Reset flag for future calls
-      isStartingCallRef.current = false;
+      // Reset flag after delay to prevent rapid re-clicks
+      setTimeout(() => {
+        callInitializingRef.current = false;
+      }, 1000);
     }
   }, [user, partner, initializeConnection, startCallTimer, startQualityMonitoring, callStatus]);
 
@@ -413,27 +429,30 @@ export const useWebRTC = (user, partner) => {
   const answerCall = useCallback(async (callId, callData) => {
     if (!user?.uid || !partner?.uid) return;
 
-    // Prevent duplicate answer attempts
-    if (isAnsweringCallRef.current) {
-      console.log('⚠️ answerCall already in progress, skipping duplicate call');
+    // Prevent duplicate answer attempts with debounce
+    if (callInitializingRef.current || lastCallIdRef.current === callId) {
+      console.log('⚠️ Call already being processed');
       return;
     }
     
-    isAnsweringCallRef.current = true;
+    callInitializingRef.current = true;
+    lastCallIdRef.current = callId;
 
     try {
       setCurrentCallId(callId);
       setCallType(callData.type);
-      setCallStatus('active');
+      // Don't set to 'active' yet - wait until media is ready
 
-      // Initialize media
+      // Initialize media FIRST
       const connection = initializeConnection();
       const constraints = {
         video: callData.type === 'video',
         audio: true
       };
       
+      console.log('🎬 Initializing media for answering call...');
       const stream = await connection.initializeMedia(constraints);
+      console.log('✅ Media initialized successfully');
       
       // Ensure video state is properly set based on call type
       if (callData.type === 'video') {
@@ -460,7 +479,9 @@ export const useWebRTC = (user, partner) => {
       callerCandidatesQueueRef.current = [];
       
       // Create answer
+      console.log('📝 Creating answer...');
       const answer = await connection.createAnswer();
+      console.log('✅ Answer created');
       
       const callRef = ref(rtdb, `calls/${callId}`);
       await update(callRef, {
@@ -468,6 +489,10 @@ export const useWebRTC = (user, partner) => {
         status: 'active',
         answeredAt: Date.now()
       });
+      console.log('✅ Call status updated to active in Firebase');
+
+      // NOW set local status to active
+      setCallStatus('active');
 
       // Start call timer and quality monitoring
       startCallTimer();
@@ -511,6 +536,7 @@ export const useWebRTC = (user, partner) => {
         
         // If call was deleted or ended, close this side too
         if (!callData || callData?.status === 'ended' || callData?.status === 'rejected') {
+          console.log('📞 Call ended by remote party');
           // Close connection and reset state
           if (webRTCConnectionRef.current) {
             webRTCConnectionRef.current.close();
@@ -526,10 +552,16 @@ export const useWebRTC = (user, partner) => {
         }
       });
 
-      startCallTimer();
+      console.log('🎉 Call answered successfully');
       toast.success('Call connected');
     } catch (error) {
       console.error('Error answering call:', error);
+      
+      // Cleanup on error
+      if (webRTCConnectionRef.current) {
+        webRTCConnectionRef.current.close();
+        webRTCConnectionRef.current = null;
+      }
       
       // Display detailed error message
       if (error.details) {
@@ -544,17 +576,15 @@ export const useWebRTC = (user, partner) => {
         toast.error('Failed to answer call');
       }
       
-      // Close connection on error
-      if (webRTCConnectionRef.current) {
-        webRTCConnectionRef.current.close();
-        webRTCConnectionRef.current = null;
-      }
       stopCallTimer();
       setCallStatus('idle');
       setCurrentCallId(null);
+      lastCallIdRef.current = null;
     } finally {
-      // Reset flag for future calls
-      isAnsweringCallRef.current = false;
+      // Reset flag after delay
+      setTimeout(() => {
+        callInitializingRef.current = false;
+      }, 1000);
     }
   }, [user, partner, initializeConnection, startCallTimer, stopCallTimer, startQualityMonitoring]);
 
@@ -585,6 +615,7 @@ export const useWebRTC = (user, partner) => {
 
       setCallStatus('idle');
       setCurrentCallId(null);
+      setIncomingCall(null);
       toast('Call rejected');
     } catch (error) {
       console.error('Error rejecting call:', error);

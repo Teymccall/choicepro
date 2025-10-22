@@ -436,22 +436,27 @@ export const AuthProvider = ({ children }) => {
       // Use requestRef.id as the key to prevent duplicates
       const notificationRef = ref(rtdb, `notifications/${targetUserId}/${requestRef.id}`);
       
-      // Check if notification already exists
-      const existingNotif = await get(notificationRef);
-      if (!existingNotif.exists()) {
-        await set(notificationRef, {
-          type: 'partner_request',
-          senderId: user.uid,
-          senderName: user.displayName || user.email,
-          senderEmail: user.email,
-          senderPhotoURL: user.photoURL || null,
-          requestId: requestRef.id,
-          message: `${user.displayName || user.email} wants to connect with you`,
-          timestamp: Date.now(),
-          read: false
-        });
-      }
+      // Always create/update notification to ensure delivery
+      await set(notificationRef, {
+        type: 'partner_request',
+        senderId: user.uid,
+        senderName: user.displayName || user.email,
+        senderEmail: user.email,
+        senderPhotoURL: user.photoURL || null,
+        requestId: requestRef.id,
+        message: `${user.displayName || user.email} wants to connect with you`,
+        timestamp: Date.now(),
+        read: false
+      });
       
+      // Also update the recipient's user document to ensure they get notified
+      const recipientRef = doc(db, 'users', targetUserId);
+      await updateDoc(recipientRef, {
+        pendingRequests: arrayUnion(requestRef.id),
+        lastNotificationTimestamp: firestoreTimestamp()
+      });
+      
+      console.log('✅ Partner request sent successfully:', requestRef.id);
       return requestRef.id;
     } catch (error) {
       console.error('Error sending partner request:', error);

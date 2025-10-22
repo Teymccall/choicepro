@@ -270,11 +270,28 @@ export class WebRTCConnection {
       if (this.onConnectionStateChange) {
         this.onConnectionStateChange(this.peerConnection.connectionState);
       }
+      
+      // Log detailed state for debugging
+      if (this.peerConnection.connectionState === 'failed') {
+        console.error('❌ Connection failed! ICE state:', this.peerConnection.iceConnectionState);
+      }
     };
 
     // Handle ICE connection state
     this.peerConnection.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', this.peerConnection.iceConnectionState);
+      
+      // Provide detailed logging for troubleshooting
+      if (this.peerConnection.iceConnectionState === 'failed') {
+        console.error('❌ ICE connection failed! This usually means:');
+        console.error('  - Network/firewall blocking connection');
+        console.error('  - TURN server not working');
+        console.error('  - NAT traversal issue');
+      } else if (this.peerConnection.iceConnectionState === 'disconnected') {
+        console.warn('⚠️ ICE connection disconnected - may reconnect automatically');
+      } else if (this.peerConnection.iceConnectionState === 'connected') {
+        console.log('✅ ICE connection established successfully');
+      }
     };
 
     return this.peerConnection;
