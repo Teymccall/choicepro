@@ -1519,8 +1519,13 @@ const TopicChat = ({ topic, onClose }) => {
 
   return (
     <div className="flex flex-col h-dvh w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black">
-      {/* Chat Header */}
-      <div className="flex-shrink-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-2xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg">
+      {/* Chat Header - Fixed with safe area */}
+      <div 
+        className="flex-shrink-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg sticky top-0 z-10"
+        style={{
+          paddingTop: 'max(env(safe-area-inset-top), 0px)'
+        }}
+      >
         {/* Top Row - Partner Info */}
         <div className="flex items-center px-3 sm:px-4 py-2 sm:py-3 gap-2 sm:gap-3">
           <button
@@ -1659,8 +1664,8 @@ const TopicChat = ({ topic, onClose }) => {
       )}
     </div>
     
-    {/* Topic Title Banner - Glassmorphism - Fully Responsive */}
-    <div className="px-3 sm:px-4 py-1.5 sm:py-2 md:py-3 bg-gradient-to-r from-blue-50/80 to-purple-50/80 dark:from-blue-900/20 dark:to-purple-900/20 backdrop-blur-sm border-t border-gray-200/30 dark:border-gray-700/30">
+    {/* Topic Title Banner - Transparent Glassmorphism */}
+    <div className="px-3 sm:px-4 py-1.5 sm:py-2 md:py-3 bg-gradient-to-r from-blue-50/50 to-purple-50/50 dark:from-blue-900/10 dark:to-purple-900/10 backdrop-blur-md border-t border-gray-200/20 dark:border-gray-700/20">
       <div className="flex items-center gap-1.5 sm:gap-2">
         <ChatBubbleLeftRightIcon className="h-3.5 sm:h-4 md:h-5 w-3.5 sm:w-4 md:w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
         <p className="text-[11px] sm:text-xs md:text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
@@ -1670,13 +1675,13 @@ const TopicChat = ({ topic, onClose }) => {
     </div>
   </div>
   
-  {/* Messages Container - Flexbox - Mobile Optimized */}
+  {/* Messages Container - Flexbox - Mobile Optimized with proper scroll */}
   <div 
     ref={messagesContainerRef}
-    className="flex-1 overflow-y-auto screenshot-protected bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
+    className="flex-1 overflow-y-auto overflow-x-hidden screenshot-protected bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
     style={{ 
       backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
-        backgroundAttachment: "fixed",
+      backgroundAttachment: "fixed",
         scrollbarWidth: 'thin',
         scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
       }}
@@ -1712,8 +1717,13 @@ const TopicChat = ({ topic, onClose }) => {
       </div>
     </div>
 
-    {/* Input Container - Flexbox - Mobile Optimized */}
-    <div className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg border-t border-gray-200 dark:border-gray-700">
+    {/* Input Container - Fixed with safe area for keyboard */}
+    <div 
+      className="flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg border-t border-gray-200 dark:border-gray-700"
+      style={{
+        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)'
+      }}
+    >
       {(replyingTo || selectedFile || recordedAudio) && (
         <div className="px-3 sm:px-4 py-2 sm:py-3 max-w-3xl mx-auto w-full space-y-2 sm:space-y-3">
           {replyingTo && (
@@ -1838,7 +1848,7 @@ const TopicChat = ({ topic, onClose }) => {
       )}
 
         {/* Message Input Area - Professional WhatsApp Style */}
-        <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 max-w-3xl mx-auto w-full">
+        <div className="px-2 sm:px-3 md:px-4 pt-2 sm:pt-2.5 md:pt-3 pb-1 max-w-3xl mx-auto w-full">
           
           {/* Recording Active Bar */}
           {isRecording && (
