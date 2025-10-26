@@ -51,15 +51,16 @@ const storage = getStorage(app);
 // Initialize Firestore with optimized settings for connection stability
 let db;
 try {
-  logFirestoreEvent('Initializing Firestore with long-polling', {
-    forceLongPolling: false,
-    autoDetect: true,
+  logFirestoreEvent('Initializing Firestore with forced long-polling', {
+    forceLongPolling: true,
     persistentCache: true
   });
   
   db = initializeFirestore(app, {
-    // Auto-detect long polling for better compatibility
-    experimentalAutoDetectLongPolling: true,
+    // Force long polling to improve stability on mobile/Safari
+    experimentalForceLongPolling: true,
+    // Disable fetch streams which can fail on some mobile networks
+    useFetchStreams: false,
     // Enable local cache with multi-tab support
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
