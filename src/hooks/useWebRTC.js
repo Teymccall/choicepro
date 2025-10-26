@@ -457,25 +457,43 @@ export const useWebRTC = (user, partner) => {
     callInitializingRef.current = true;
     lastCallIdRef.current = callId;
 
+    console.log('🎯 answerCall started:', { 
+      callId, 
+      callType: callData.type,
+      userAgent: navigator.userAgent,
+      isMobile: /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    });
+
     try {
       setCurrentCallId(callId);
       setCallType(callData.type);
       // Don't set to 'active' yet - wait until media is ready
 
       // Initialize media FIRST
+      console.log('📱 Step 1: Initializing WebRTC connection...');
       const connection = initializeConnection();
+      console.log('✅ WebRTC connection initialized');
+      
       const constraints = {
         video: callData.type === 'video',
         audio: true
       };
       
-      console.log('🎬 Initializing media for answering call...');
+      console.log('🎬 Step 2: Initializing media with constraints:', constraints);
       const stream = await connection.initializeMedia(constraints);
-      console.log('✅ Media initialized successfully');
+      console.log('✅ Step 2 Complete: Media initialized successfully', {
+        streamId: stream.id,
+        tracks: stream.getTracks().map(t => ({ 
+          id: t.id, 
+          kind: t.kind, 
+          enabled: t.enabled, 
+          readyState: t.readyState 
+        }))
+      });
       
       // Ensure video state is properly set based on call type
       if (callData.type === 'video') {
-        console.log('🎥 Answering video call - ensuring video is enabled');
+        console.log('🎥 Step 3: Answering video call - ensuring video is enabled');
         setIsVideoEnabled(true);
         // Make sure video tracks are enabled
         stream.getVideoTracks().forEach(track => {
@@ -483,48 +501,60 @@ export const useWebRTC = (user, partner) => {
           console.log(`📹 Video track ${track.id} enabled: ${track.enabled}`);
         });
       } else {
-        console.log('🎵 Answering audio call - disabling video');
+        console.log('🎵 Step 3: Answering audio call - disabling video');
         setIsVideoEnabled(false);
       }
 
+      console.log('📡 Step 4: Setting remote offer...');
       // Set remote offer first
       await connection.setRemoteOffer(callData.offer);
+      console.log('✅ Step 4 Complete: Remote offer set successfully');
       
       // Process queued caller ICE candidates after offer is set
-      console.log(`Processing ${callerCandidatesQueueRef.current.length} queued caller candidates`);
+      console.log(`🧊 Step 5: Processing ${callerCandidatesQueueRef.current.length} queued caller candidates`);
       callerCandidatesQueueRef.current.forEach(candidate => {
         connection.addIceCandidate(candidate);
       });
       callerCandidatesQueueRef.current = [];
+      console.log('✅ Step 5 Complete: ICE candidates processed');
       
+      console.log('📝 Step 6: Creating answer...');
       // Create answer
-      console.log('📝 Creating answer...');
       const answer = await connection.createAnswer();
-      console.log('✅ Answer created:', answer);
+      console.log('✅ Step 6 Complete: Answer created successfully', {
+        type: answer.type,
+        sdpLength: answer.sdp?.length || 0
+      });
       
+      console.log('⏱️ Step 7: Waiting for ICE gathering...');
       // Small delay to ensure ICE candidates are gathered
       await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('✅ Step 7 Complete: ICE gathering delay finished');
       
       const callRef = ref(rtdb, `calls/${callId}`);
-      console.log('📤 Updating Firebase with answer...');
+      console.log('📤 Step 8: Updating Firebase with answer...');
       try {
         await update(callRef, {
           answer,
           status: 'active',
           answeredAt: Date.now()
         });
-        console.log('✅ Call status updated to active in Firebase');
+        console.log('✅ Step 8 Complete: Call status updated to active in Firebase');
       } catch (fbError) {
-        console.error('❌ Firebase update error:', fbError);
+        console.error('❌ Step 8 Failed: Firebase update error:', fbError);
         throw new Error(`Firebase error: ${fbError.message}`);
       }
 
+      console.log('🎉 Step 9: Setting local status to active...');
       // NOW set local status to active
       setCallStatus('active');
+      console.log('✅ Step 9 Complete: Local status set to active');
 
+      console.log('⏰ Step 10: Starting call timer and quality monitoring...');
       // Start call timer and quality monitoring
       startCallTimer();
       startQualityMonitoring();
+      console.log('✅ Step 10 Complete: Timer and monitoring started');
 
       // Remove incoming call notification
       if (user?.uid) {
@@ -587,15 +617,24 @@ export const useWebRTC = (user, partner) => {
         }
       });
 
-      console.log('🎉 Call answered successfully');
+      console.log('🎉 Call answered successfully - all steps completed');
       // Toast already shown on caller side when status becomes 'active'
     } catch (error) {
-      console.error('Error answering call:', error);
+      console.error('❌ answerCall FAILED:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        details: error.details,
+        constraints: error.constraints,
+        originalError: error.originalError
+      });
       
       // Cleanup on error
+      console.log('🧹 Cleaning up after answerCall error...');
       if (webRTCConnectionRef.current) {
         webRTCConnectionRef.current.close();
         webRTCConnectionRef.current = null;
+        console.log('✅ WebRTC connection closed');
       }
       
       // Display detailed error message
@@ -608,7 +647,7 @@ export const useWebRTC = (user, partner) => {
           { duration: 6000 }
         );
       } else {
-        toast.error('Failed to answer call');
+        toast.error(`Failed to answer call: ${error.message}`, { duration: 6000 });
       }
       
       stopCallTimer();
@@ -616,10 +655,12 @@ export const useWebRTC = (user, partner) => {
       setCurrentCallId(null);
       lastCallIdRef.current = null;
       hasShownConnectedToastRef.current = false; // Reset for next call
+      console.log('✅ Cleanup completed after answerCall error');
     } finally {
       // Reset flag after delay
       setTimeout(() => {
         callInitializingRef.current = false;
+        console.log('🔄 callInitializingRef reset to false');
       }, 1000);
     }
   }, [user, partner, initializeConnection, startCallTimer, stopCallTimer, startQualityMonitoring]);
