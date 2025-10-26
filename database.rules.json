@@ -165,8 +165,8 @@
     "calls": {
       ".indexOn": ["recipient"],
       "$callId": {
-        ".read": "auth != null && (data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
-        ".write": "auth != null && (data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid)",
+        ".read": "auth != null",
+        ".write": "auth != null && ((data.child('caller').val() === auth.uid || data.child('recipient').val() === auth.uid) || (newData.child('caller').val() === auth.uid || newData.child('recipient').val() === auth.uid))",
         ".validate": "newData.hasChildren(['caller','recipient','type','status','createdAt'])",
         "caller": {
           ".validate": "newData.isString()"

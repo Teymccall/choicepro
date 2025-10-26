@@ -114,44 +114,44 @@ export class WebRTCConnection {
       switch (error.name) {
         case 'NotAllowedError':
         case 'PermissionDeniedError':
-          errorMessage = '🚫 Camera/Microphone Permission Denied';
+          errorMessage = 'Permission Required';
           errorDetails = constraints.video 
-            ? 'Please enable camera and microphone in your browser settings.'
-            : 'Please enable microphone in your browser settings.';
+            ? 'Please allow access to camera and microphone to make calls.'
+            : 'Please allow access to microphone to make calls.';
           break;
           
         case 'NotFoundError':
         case 'DevicesNotFoundError':
-          errorMessage = '📷 No Camera or Microphone Found';
+          errorMessage = 'Device Not Found';
           errorDetails = constraints.video
-            ? 'Please connect a camera and microphone to your device.'
-            : 'Please connect a microphone to your device.';
+            ? 'No camera or microphone detected. Please connect your devices.'
+            : 'No microphone detected. Please connect a microphone.';
           break;
           
         case 'NotReadableError':
         case 'TrackStartError':
-          errorMessage = '⚠️ Device Already in Use';
-          errorDetails = 'Your camera or microphone is being used by another application. Please close other apps and try again.';
+          errorMessage = 'Device Busy';
+          errorDetails = 'Camera or microphone is being used by another app. Please close other apps.';
           break;
           
         case 'OverconstrainedError':
         case 'ConstraintNotSatisfiedError':
-          errorMessage = '⚙️ Device Configuration Error';
-          errorDetails = 'Your device does not meet the required specifications. Try adjusting settings.';
+          errorMessage = 'Configuration Error';
+          errorDetails = 'Your device settings need adjustment. Please check device settings.';
           break;
           
         case 'TypeError':
-          errorMessage = '🔧 Browser Compatibility Issue';
-          errorDetails = 'Your browser may not support video calls. Please use Chrome, Firefox, Safari, or Edge.';
+          errorMessage = 'Browser Not Supported';
+          errorDetails = 'Please use a modern browser like Chrome, Firefox, Safari, or Edge.';
           break;
           
         case 'AbortError':
-          errorMessage = '❌ Media Access Interrupted';
+          errorMessage = 'Access Interrupted';
           errorDetails = 'Camera/microphone access was stopped. Please try again.';
           break;
           
         default:
-          errorMessage = '❌ Camera/Microphone Access Failed';
+          errorMessage = 'Access Failed';
           errorDetails = `Error: ${error.message || 'Unknown error'}`;
       }
       
@@ -450,8 +450,20 @@ export class WebRTCConnection {
 
   /**
    * Apply pending local stream if video ref is now available
+   * For audio calls, we skip this since there's no local video preview
    */
-  applyPendingLocalStream() {
+  applyPendingLocalStream(callType = 'video') {
+    // For audio calls, clear pending stream immediately - no video ref needed
+    if (callType === 'audio' && this.pendingLocalStream) {
+      console.log('🎵 Audio call - skipping local video ref (not needed)');
+      this.pendingLocalStream = null;
+      if (this.pendingLocalStreamInterval) {
+        clearInterval(this.pendingLocalStreamInterval);
+        this.pendingLocalStreamInterval = null;
+      }
+      return true;
+    }
+    
     if (this.pendingLocalStream && this.localVideoRef?.current) {
       console.log('🔄 Applying pending local stream to video element');
       console.log('📦 Pending stream details:', {
@@ -479,8 +491,8 @@ export class WebRTCConnection {
       console.log('✅ Pending local stream applied successfully');
       return true;
     }
-    if (this.pendingLocalStream && !this.localVideoRef?.current) {
-      console.log('⌛ Pending local stream waiting for video ref');
+    if (this.pendingLocalStream && !this.localVideoRef?.current && callType === 'video') {
+      console.log('⌛ Pending local stream waiting for video ref (video call)');
     }
     return false;
   }

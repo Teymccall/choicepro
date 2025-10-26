@@ -16,7 +16,6 @@ import {
 import { ref, onValue, remove, update } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import Notifications from './Notifications';
-import CallButtons from './CallButtons';
 
 const Navigation = () => {
   const { user, logout, partner, acceptPartnerRequest, declinePartnerRequest } = useAuth();
@@ -458,9 +457,6 @@ const Navigation = () => {
 
             {/* User Menu - Desktop */}
             <div className="hidden sm:flex sm:items-center sm:space-x-4">
-              {/* Call Buttons */}
-              <CallButtons />
-              
               {/* Notifications */}
               <div className="relative notifications-container">
                 <button

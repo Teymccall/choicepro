@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Switch } from '@headlessui/react';
 import {
   Cog6ToothIcon,
@@ -36,6 +36,9 @@ const Settings = () => {
     partnerResponses: true,
     suggestions: true,
   });
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+  const scrollContainerRef = useRef(null);
   const [privacy, setPrivacy] = useState({
     showProfile: true,
     anonymousNotes: true,
@@ -84,6 +87,52 @@ const Settings = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [notificationBlocked, setNotificationBlocked] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState('default');
+
+  // Auto-hide header on scroll
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      const currentScrollY = scrollContainer.scrollTop;
+      
+      // Show header when at top of page
+      if (currentScrollY < 10) {
+        setIsHeaderVisible(true);
+        setLastScrollY(currentScrollY);
+        return;
+      }
+      
+      // Hide on scroll down, show on scroll up
+      if (currentScrollY > lastScrollY && currentScrollY > 80) {
+        // Scrolling down & past threshold - hide header
+        setIsHeaderVisible(false);
+      } else if (currentScrollY < lastScrollY) {
+        // Scrolling up - show header
+        setIsHeaderVisible(true);
+      }
+      
+      setLastScrollY(currentScrollY);
+    };
+
+    // Throttle scroll events for performance
+    let ticking = false;
+    const throttledScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          handleScroll();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    scrollContainer.addEventListener('scroll', throttledScroll, { passive: true });
+    
+    return () => {
+      scrollContainer.removeEventListener('scroll', throttledScroll);
+    };
+  }, [lastScrollY]);
 
   // Add a check for valid authentication
   const checkAuthAndPermissions = () => {
@@ -662,9 +711,14 @@ const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-blue-900/20 pb-24">
+    <div ref={scrollContainerRef} className="h-screen overflow-y-auto bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-purple-900/20 dark:to-blue-900/20 pb-24">
       {/* Hero Header */}
-      <div className="sticky top-0 z-40 backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-700/50">
+      <div 
+        className="sticky top-0 z-40 backdrop-blur-xl bg-white/80 dark:bg-gray-900/80 border-b border-gray-200/50 dark:border-gray-700/50 transition-transform duration-300 ease-in-out"
+        style={{
+          transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-100%)'
+        }}
+      >
         <div className="max-w-6xl mx-auto px-6 py-6">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">

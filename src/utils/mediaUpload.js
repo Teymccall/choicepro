@@ -49,42 +49,65 @@ export const uploadMedia = async (file) => {
 // Function to validate file before upload
 export const validateFile = async (file) => {
   return new Promise((resolve, reject) => {
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    
+    // Validate file type first
+    if (!isImage && !isVideo) {
+      reject(new Error('File type not supported. Please use images (JPEG, PNG, GIF, WEBP) or videos (MP4, MOV, WEBM)'));
+      return;
+    }
+    
+    // Validate file size (max 10MB for images, 50MB for videos)
+    const maxSize = isImage ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
     if (file.size > maxSize) {
-      reject(new Error('File size must be less than 5MB'));
+      reject(new Error(`File size must be less than ${isImage ? '10' : '50'}MB`));
       return;
     }
 
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      reject(new Error('File type not supported. Please use JPEG, PNG, GIF or WEBP'));
-      return;
-    }
-
-    // Create image object to check dimensions
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      
-      // Check if image dimensions are reasonable
-      if (img.width > 4096 || img.height > 4096) {
-        reject(new Error('Image dimensions too large. Maximum size is 4096x4096 pixels.'));
+    // For images, validate specific types and dimensions
+    if (isImage) {
+      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!allowedImageTypes.includes(file.type)) {
+        reject(new Error('Image type not supported. Please use JPEG, PNG, GIF or WEBP'));
         return;
       }
 
+      // Create image object to check dimensions
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        
+        // Check if image dimensions are reasonable
+        if (img.width > 4096 || img.height > 4096) {
+          reject(new Error('Image dimensions too large. Maximum size is 4096x4096 pixels.'));
+          return;
+        }
+
+        resolve(true);
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Invalid image file'));
+      };
+
+      img.src = objectUrl;
+    }
+    
+    // For videos, validate specific types
+    else if (isVideo) {
+      const allowedVideoTypes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
+      if (!allowedVideoTypes.includes(file.type)) {
+        reject(new Error('Video type not supported. Please use MP4, MOV, or WEBM'));
+        return;
+      }
+
+      // Videos don't need dimension checks, just resolve
       resolve(true);
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error('Invalid image file'));
-    };
-
-    img.src = objectUrl;
+    }
   });
 }; 
 

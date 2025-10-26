@@ -14,12 +14,29 @@ const Layout = ({ children }) => {
   const { user, partner } = useAuth();
   const webRTC = useWebRTCContext();
   const location = useLocation();
+  const [topicChatKey, setTopicChatKey] = React.useState(0);
   const isLoginPage = location.pathname === '/login';
   const isHomePage = location.pathname === '/';
   const isChatPage = location.pathname === '/chat';
+  const isDashboardPage = location.pathname === '/dashboard';
+  const isResultsPage = location.pathname === '/results';
+  const isSettingsPage = location.pathname === '/settings';
+  const isTopicsPage = location.pathname === '/topics';
+  const isTopicChatOpen = location.state?.topicChatOpen || sessionStorage.getItem('openTopicChatId');
 
-  // Don't show navigation on login page or chat page
-  const showNav = user && !isLoginPage && !isChatPage;
+  // Listen for topic chat open/close events
+  React.useEffect(() => {
+    const handleStorageChange = () => {
+      setTopicChatKey(prev => prev + 1);
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Don't show navigation on login page, chat page, or when topic chat is open
+  // ALWAYS show nav on Dashboard, Results, and Settings pages (but NOT Topics when chat is open)
+  const allowNavWithTopicChat = isDashboardPage || isResultsPage || isSettingsPage;
+  const showNav = user && !isLoginPage && !isChatPage && (!isTopicChatOpen || allowNavWithTopicChat);
 
   // NOTE: Call management now handled by CallManager component in App.js (using ZegoCloud)
 
@@ -119,12 +136,11 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
-      {showNav && (
-        <>
-          <Navigation />
-          <FloatingNav />
-        </>
-      )}
+      {/* Top Navigation - hide when in topic chat */}
+      {showNav && <Navigation />}
+      
+      {/* Bottom Navigation - Hide when chat route; show on dashboard/results/settings even if topic chat flagged */}
+      {user && !isLoginPage && !isChatPage && (!isTopicChatOpen || allowNavWithTopicChat) && <FloatingNav />}
       <main 
         className={`
           ${showNav && !isChatPage ? 'pt-16 pb-20 md:pb-8' : ''} 

@@ -32,6 +32,7 @@ export const useWebRTC = (user, partner) => {
   const isRejectingCallRef = useRef(false);
   const callInitializingRef = useRef(false);
   const lastCallIdRef = useRef(null);
+  const hasShownConnectedToastRef = useRef(false);
 
   // Initialize WebRTC connection (attemptReconnection defined later)
   const initializeConnection = useCallback(() => {
@@ -271,6 +272,9 @@ export const useWebRTC = (user, partner) => {
     try {
       setCallType(type);
       setCallStatus('calling');
+      
+      // Reset toast ref for new call
+      hasShownConnectedToastRef.current = false;
 
       // Initialize media
       const connection = initializeConnection();
@@ -346,13 +350,25 @@ export const useWebRTC = (user, partner) => {
       const unsubscribe = onValue(callRef, async (snapshot) => {
         const callData = snapshot.val();
         
-        // If call was deleted or doesn't exist, end it
+        console.log('📡 Caller: Call status update:', { callData, hasData: !!callData, status: callData?.status });
+        
+        // Only end call if explicitly ended/rejected, not if data is temporarily null
         if (!callData) {
-          endCall();
+          console.warn('⚠️ Caller: Received null call data - may be temporary Firebase sync issue');
           return;
         }
         
-        if (callData?.answer && connection.peerConnection.signalingState !== 'stable') {
+        // Check if call was ended or rejected
+        if (callData.status === 'ended' || callData.status === 'rejected') {
+          console.log('📞 Caller: Call ended/rejected by remote party');
+          endCall();
+          unsubscribe();
+          return;
+        }
+        
+        // Process answer if available
+        if (callData.answer && connection.peerConnection.signalingState !== 'stable') {
+          console.log('📥 Caller: Received answer from recipient');
           await connection.setRemoteAnswer(callData.answer);
           
           // Process queued recipient ICE candidates after answer is set
@@ -363,15 +379,18 @@ export const useWebRTC = (user, partner) => {
           recipientCandidatesQueueRef.current = [];
         }
 
-        if (callData?.status === 'active' && callStatus !== 'active') {
+        // Transition to active when recipient accepts
+        if (callData.status === 'active' && callStatus !== 'active') {
+          console.log('✅ Caller: Call accepted! Transitioning to active state');
           setCallStatus('active');
           startCallTimer();
           startQualityMonitoring();
-        }
-
-        if (callData?.status === 'ended' || callData?.status === 'rejected') {
-          endCall();
-          unsubscribe();
+          
+          // Show toast only once using ref to prevent duplicates from rapid Firebase updates
+          if (!hasShownConnectedToastRef.current) {
+            hasShownConnectedToastRef.current = true;
+            toast.success('Call connected!');
+          }
         }
       });
 
@@ -540,12 +559,18 @@ export const useWebRTC = (user, partner) => {
 
       // Listen for call status changes (if caller ends call)
       const callStatusRef = ref(rtdb, `calls/${callId}`);
-      onValue(callStatusRef, (snapshot) => {
+      const callStatusUnsubscribe = onValue(callStatusRef, (snapshot) => {
         const callData = snapshot.val();
         
-        // If call was deleted or ended, close this side too
-        if (!callData || callData?.status === 'ended' || callData?.status === 'rejected') {
-          console.log('📞 Call ended by remote party');
+        console.log('📡 Receiver: Call status update:', { callData, hasData: !!callData });
+        
+        // Only end call if explicitly ended/rejected, NOT if data is temporarily null
+        // This prevents premature call ending due to Firebase sync delays
+        if (callData && (callData.status === 'ended' || callData.status === 'rejected')) {
+          console.log('📞 Call ended by remote party - status:', callData.status);
+          // Clean up listener
+          callStatusUnsubscribe();
+          
           // Close connection and reset state
           if (webRTCConnectionRef.current) {
             webRTCConnectionRef.current.close();
@@ -557,12 +582,13 @@ export const useWebRTC = (user, partner) => {
           setCallType(null);
           setIsAudioEnabled(true);
           setIsVideoEnabled(true);
-          toast('Call ended');
+          hasShownConnectedToastRef.current = false; // Reset for next call
+          // Don't show toast here - only show for person who clicks end button
         }
       });
 
       console.log('🎉 Call answered successfully');
-      toast.success('Call connected');
+      // Toast already shown on caller side when status becomes 'active'
     } catch (error) {
       console.error('Error answering call:', error);
       
@@ -589,6 +615,7 @@ export const useWebRTC = (user, partner) => {
       setCallStatus('idle');
       setCurrentCallId(null);
       lastCallIdRef.current = null;
+      hasShownConnectedToastRef.current = false; // Reset for next call
     } finally {
       // Reset flag after delay
       setTimeout(() => {
@@ -723,6 +750,7 @@ export const useWebRTC = (user, partner) => {
       iceCandidatesQueueRef.current = [];
       callerCandidatesQueueRef.current = [];
       recipientCandidatesQueueRef.current = [];
+      hasShownConnectedToastRef.current = false; // Reset for next call
 
       toast('Call ended');
     } catch (error) {
@@ -789,13 +817,17 @@ export const useWebRTC = (user, partner) => {
 
   // Apply pending local stream when video element becomes available
   useEffect(() => {
-    if (callStatus !== 'idle' && webRTCConnectionRef.current && localVideoRef.current) {
-      const applied = webRTCConnectionRef.current.applyPendingLocalStream();
-      if (applied) {
-        console.log('✅ Applied pending local stream after video element rendered');
+    if (callStatus !== 'idle' && webRTCConnectionRef.current) {
+      // For audio calls, apply immediately (no video ref needed)
+      // For video calls, wait for localVideoRef.current
+      if (callType === 'audio' || localVideoRef.current) {
+        const applied = webRTCConnectionRef.current.applyPendingLocalStream(callType);
+        if (applied) {
+          console.log('✅ Applied pending local stream after video element rendered');
+        }
       }
     }
-  }, [callStatus, localVideoRef]);
+  }, [callStatus, callType, localVideoRef]);
 
   // Cleanup on unmount or page refresh
   useEffect(() => {

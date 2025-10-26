@@ -71,7 +71,6 @@ function App() {
         <AuthProvider>
           <WebRTCProvider>
             <NotificationHandler />
-            <CallManager />
             <Layout>
             <React.Suspense fallback={<LoadingSpinner />}>
               <Routes>

@@ -22,6 +22,8 @@ const FloatingNav = () => {
   const [unreadResponsesByTopic, setUnreadResponsesByTopic] = useState({});
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasUnreadResponses, setHasUnreadResponses] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
 
   const navItems = [
     {
@@ -269,18 +271,68 @@ const FloatingNav = () => {
     }
   }, [location.pathname, user?.uid]);
 
-  // Don't show nav if user is not logged in or in chat
+  // Auto-hide navigation on scroll - Professional mobile UX
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      // Show nav when at top of page
+      if (currentScrollY < 10) {
+        setIsVisible(true);
+        setLastScrollY(currentScrollY);
+        return;
+      }
+      
+      // Hide on scroll down, show on scroll up
+      if (currentScrollY > lastScrollY && currentScrollY > 80) {
+        // Scrolling down & past threshold - hide nav
+        setIsVisible(false);
+      } else if (currentScrollY < lastScrollY) {
+        // Scrolling up - show nav
+        setIsVisible(true);
+      }
+      
+      setLastScrollY(currentScrollY);
+    };
+
+    // Throttle scroll events for performance
+    let ticking = false;
+    const throttledScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          handleScroll();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', throttledScroll, { passive: true });
+    
+    return () => {
+      window.removeEventListener('scroll', throttledScroll);
+    };
+  }, [lastScrollY]);
+
+  // Reset visibility on route change
+  useEffect(() => {
+    setIsVisible(true);
+    setLastScrollY(0);
+  }, [location.pathname]);
+
+  // Don't show nav if user is not logged in
   if (!user) return null;
   
-  // Hide nav when in chat route
+  // Hide nav on chat route
   if (location.pathname === '/chat') return null;
 
   return (
     <nav 
-      className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50 md:hidden"
+      className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 backdrop-blur-md border-t border-gray-200 dark:border-gray-800 z-50 md:hidden transition-transform duration-300 ease-in-out"
       style={{
         paddingBottom: 'env(safe-area-inset-bottom)',
-        height: 'calc(4rem + env(safe-area-inset-bottom))' // 4rem = 64px (h-16 equivalent)
+        height: 'calc(4rem + env(safe-area-inset-bottom))', // 4rem = 64px (h-16 equivalent)
+        transform: isVisible ? 'translateY(0)' : 'translateY(100%)'
       }}
     >
       <div className="flex items-center justify-around h-16 px-2">
@@ -301,8 +353,8 @@ const FloatingNav = () => {
                 <item.icon 
                   className={`h-6 w-6 transition-colors duration-200 ${
                     isActive 
-                      ? 'text-blue-600' 
-                      : 'text-gray-400'
+                      ? 'text-blue-600 dark:text-blue-400' 
+                      : 'text-gray-400 dark:text-gray-500'
                   }`}
                   strokeWidth={isActive ? 2 : 1.5}
                 />
@@ -321,8 +373,8 @@ const FloatingNav = () => {
               <span 
                 className={`text-[10px] font-medium transition-colors duration-200 ${
                   isActive 
-                    ? 'text-blue-600' 
-                    : 'text-gray-500'
+                    ? 'text-blue-600 dark:text-blue-400' 
+                    : 'text-gray-500 dark:text-gray-400'
                 }`}
               >
                 {item.label}

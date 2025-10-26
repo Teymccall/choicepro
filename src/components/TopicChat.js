@@ -103,7 +103,16 @@ const TopicChat = ({ topic, onClose }) => {
   const pendingStopRef = useRef(null);
   const previewAudioRef = useRef(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [audioWaveform, setAudioWaveform] = useState(Array(15).fill(0));
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
   const [previewCurrentTime, setPreviewCurrentTime] = useState(0);
+  const [shouldReserveSpaceForNav, setShouldReserveSpaceForNav] = useState(() => {
+    const isDirectChatRoute = window.location.pathname === '/chat';
+    const hasTopicChatOpen = Boolean(sessionStorage.getItem('openTopicChatId'));
+    return !(topic?.isDirectChat || isDirectChatRoute || hasTopicChatOpen);
+  });
   const [partnerData, setPartnerData] = useState(partner);
   const [messageCount, setMessageCount] = useState(0);
   const [relationshipLevel, setRelationshipLevel] = useState({ level: 'Acquaintance', color: 'text-gray-600 dark:text-gray-400' });
@@ -149,6 +158,26 @@ const TopicChat = ({ topic, onClose }) => {
       }
     };
   }, [topic?.id, user?.uid]);
+
+  useEffect(() => {
+    const updateNavSpace = () => {
+      const isDirectChatRoute = window.location.pathname === '/chat';
+      const hasTopicChatOpen = Boolean(sessionStorage.getItem('openTopicChatId'));
+      const shouldReserve = !(topic?.isDirectChat || isDirectChatRoute || hasTopicChatOpen);
+      setShouldReserveSpaceForNav(shouldReserve);
+    };
+
+    updateNavSpace();
+
+    const handleStorageChange = () => updateNavSpace();
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('topicChatOpened', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('topicChatOpened', handleStorageChange);
+    };
+  }, [topic?.id, topic?.isDirectChat]);
 
   useEffect(() => {
     if (!topic?.id || !user?.uid) return;
@@ -384,30 +413,30 @@ const TopicChat = ({ topic, onClose }) => {
   useEffect(() => {
     if (!user?.uid || !partner?.uid) return;
     
-    console.log('Setting up partner connection listener for:', partner.uid);
-    const partnerConnectionRef = ref(rtdb, `connections/${partner.uid}`);
+    console.log('Setting up partner presence listener for:', partner.uid);
+    const partnerPresenceRef = ref(rtdb, `presence/${partner.uid}`);
     
-    const unsubscribe = onValue(partnerConnectionRef, (snapshot) => {
-      const connectionData = snapshot.exists() ? snapshot.val() : null;
-      const isConnected = connectionData?.status === 'online';
+    const unsubscribe = onValue(partnerPresenceRef, (snapshot) => {
+      const presenceData = snapshot.exists() ? snapshot.val() : null;
+      const isConnected = presenceData?.isOnline === true;
       
-      console.log('Partner connection update:', {
+      console.log('Partner presence update:', {
         partnerId: partner.uid,
-        connected: isConnected,
-        data: connectionData
+        isOnline: isConnected,
+        data: presenceData
       });
       
-      // Force UI update by triggering a re-render
+      // Update partner data with presence info
       setPartnerData(prev => ({
         ...prev,
         isOnline: isConnected,
-        lastActive: connectionData?.lastActive,
-        connectionStatus: connectionData?.status || 'offline'
+        lastOnline: presenceData?.lastOnline,
+        connectionId: presenceData?.connectionId
       }));
     });
 
     return () => {
-      console.log('Cleaning up partner connection listener');
+      console.log('Cleaning up partner presence listener');
       unsubscribe();
     };
   }, [user?.uid, partner?.uid]);
@@ -518,8 +547,8 @@ const TopicChat = ({ topic, onClose }) => {
       };
       reader.readAsDataURL(file);
 
-      // Optimize image if it's too large
-      if (file.size > 1024 * 1024) { // If larger than 1MB
+      // Optimize image if it's too large (skip for videos)
+      if (file.type.startsWith('image/') && file.size > 1024 * 1024) { // If image larger than 1MB
         const optimizedImage = await optimizeImage(file);
         if (optimizedImage) {
           setSelectedFile(optimizedImage);
@@ -887,9 +916,13 @@ const TopicChat = ({ topic, onClose }) => {
 
   const startRecording = async () => {
     try {
-      // Haptic feedback on recording start
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
+      // Haptic feedback on recording start (only if user gesture active)
+      if ('vibrate' in navigator) {
+        try {
+          navigator.vibrate(50);
+        } catch (error) {
+          // Silently fail if vibration blocked
+        }
       }
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -909,6 +942,16 @@ const TopicChat = ({ topic, onClose }) => {
       }
       setPreviewPlaying(false);
       setPreviewCurrentTime(0);
+      
+      // Setup audio visualizer for real-time waveform
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+      analyserRef.current.fftSize = 64;
+      
+      // Start waveform animation
+      animateWaveform();
 
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -937,6 +980,21 @@ const TopicChat = ({ topic, onClose }) => {
         clearInterval(recordingTimerRef.current);
         stream.getTracks().forEach(track => track.stop());
         autoSendRecordingRef.current = false;
+        
+        // Cleanup audio visualization
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          try {
+            audioContextRef.current.close();
+          } catch (error) {
+            console.log('AudioContext already closed or error closing:', error.message);
+          } finally {
+            audioContextRef.current = null;
+          }
+        }
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
 
         if (shouldAutoSend) {
           try {
@@ -973,6 +1031,25 @@ const TopicChat = ({ topic, onClose }) => {
     }
   };
 
+  // Animate waveform based on real audio input
+  const animateWaveform = () => {
+    if (!analyserRef.current) return;
+    
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteFrequencyData(dataArray);
+    
+    // Sample 15 points for waveform
+    const step = Math.floor(dataArray.length / 15);
+    const newWaveform = [];
+    for (let i = 0; i < 15; i++) {
+      const value = dataArray[i * step] / 255; // Normalize to 0-1
+      newWaveform.push(value);
+    }
+    setAudioWaveform(newWaveform);
+    
+    animationFrameRef.current = requestAnimationFrame(animateWaveform);
+  };
+
   useEffect(() => {
     return () => {
       if (mediaRecorderRef.current && isRecording) {
@@ -980,6 +1057,19 @@ const TopicChat = ({ topic, onClose }) => {
       }
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try {
+          audioContextRef.current.close();
+        } catch (error) {
+          console.log('AudioContext already closed or error closing:', error.message);
+        } finally {
+          audioContextRef.current = null;
+        }
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [isRecording]);
@@ -1167,15 +1257,7 @@ const TopicChat = ({ topic, onClose }) => {
     };
   }, []);
 
-  // Add cleanup for recording when component unmounts
-  useEffect(() => {
-    return () => {
-      if (mediaRecorderRef.current && isRecording) {
-        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        clearInterval(recordingTimerRef.current);
-      }
-    };
-  }, [isRecording]);
+  // Cleanup handled in the main useEffect above - removed duplicate to prevent race conditions
 
   // ============ SCREENSHOT PROTECTION ============
   useEffect(() => {
@@ -1527,6 +1609,11 @@ const TopicChat = ({ topic, onClose }) => {
               toast.error('No partner connected');
               return;
             }
+            // Prevent starting new call if one is already active
+            if (webRTC.callStatus && webRTC.callStatus !== 'idle') {
+              toast.error('Call already in progress');
+              return;
+            }
             try {
               console.log('Starting audio call...');
               await webRTC.startCall('audio');
@@ -1535,10 +1622,19 @@ const TopicChat = ({ topic, onClose }) => {
               toast.error('Failed to start call: ' + error.message);
             }
           }}
-          className="flex p-1.5 sm:p-2 hover:bg-green-100 dark:hover:bg-green-900/30 rounded-full transition-all group"
-          title="Audio Call"
+          disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
+          className={`flex p-1.5 sm:p-2 rounded-full transition-all group ${
+            webRTC?.callStatus && webRTC.callStatus !== 'idle'
+              ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-800'
+              : 'hover:bg-green-100 dark:hover:bg-green-900/30'
+          }`}
+          title={webRTC?.callStatus && webRTC.callStatus !== 'idle' ? 'Call in progress' : 'Audio Call'}
         >
-          <PhoneIcon className="h-5 w-5 sm:h-5 sm:w-5 text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400" />
+          <PhoneIcon className={`h-5 w-5 sm:h-5 sm:w-5 ${
+            webRTC?.callStatus && webRTC.callStatus !== 'idle'
+              ? 'text-gray-400 dark:text-gray-600'
+              : 'text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400'
+          }`} />
         </button>
 
         {/* Video Call */}
@@ -1555,6 +1651,11 @@ const TopicChat = ({ topic, onClose }) => {
               toast.error('No partner connected');
               return;
             }
+            // Prevent starting new call if one is already active
+            if (webRTC.callStatus && webRTC.callStatus !== 'idle') {
+              toast.error('Call already in progress');
+              return;
+            }
             try {
               console.log('Starting video call...');
               await webRTC.startCall('video');
@@ -1563,10 +1664,19 @@ const TopicChat = ({ topic, onClose }) => {
               toast.error('Failed to start call');
             }
           }}
-          className="flex p-1.5 sm:p-2 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-full transition-all group"
-          title="Video Call"
+          disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
+          className={`flex p-1.5 sm:p-2 rounded-full transition-all group ${
+            webRTC?.callStatus && webRTC.callStatus !== 'idle'
+              ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-800'
+              : 'hover:bg-blue-100 dark:hover:bg-blue-900/30'
+          }`}
+          title={webRTC?.callStatus && webRTC.callStatus !== 'idle' ? 'Call in progress' : 'Video Call'}
         >
-          <VideoCameraIcon className="h-5 w-5 sm:h-5 sm:w-5 text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+          <VideoCameraIcon className={`h-5 w-5 sm:h-5 sm:w-5 ${
+            webRTC?.callStatus && webRTC.callStatus !== 'idle'
+              ? 'text-gray-400 dark:text-gray-600'
+              : 'text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400'
+          }`} />
         </button>
 
         {/* Options Menu - Always visible */}
@@ -1756,11 +1866,19 @@ const TopicChat = ({ topic, onClose }) => {
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
               <div className="flex items-center gap-2">
                 <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 rounded-md overflow-hidden">
-                  <img
-                    src={previewUrl}
-                    alt="Selected"
-                    className="w-full h-full object-cover"
-                  />
+                  {selectedFile.type.startsWith('video/') ? (
+                    <video
+                      src={previewUrl}
+                      className="w-full h-full object-cover"
+                      muted
+                    />
+                  ) : (
+                    <img
+                      src={previewUrl}
+                      alt="Selected"
+                      className="w-full h-full object-cover"
+                    />
+                  )}
                   {uploadingMedia && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                       <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -1769,7 +1887,7 @@ const TopicChat = ({ topic, onClose }) => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {uploadingMedia ? 'Uploading...' : 'Photo'}
+                    {uploadingMedia ? 'Sending...' : selectedFile.type.startsWith('video/') ? 'Video' : 'Photo'}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {uploadingMedia ? 'Please wait...' : 'Ready to send'}
@@ -1797,9 +1915,11 @@ const TopicChat = ({ topic, onClose }) => {
 
         {/* Message Input Area - Professional WhatsApp Style */}
         <div 
-          className="flex-shrink-0 px-2 sm:px-3 md:px-4 pt-2 sm:pt-2.5 md:pt-3 pb-1 max-w-3xl mx-auto w-full bg-white dark:bg-gray-900"
+          className="flex-shrink-0 px-2 sm:px-3 md:px-4 pt-2 sm:pt-2.5 md:pt-3 pb-4 max-w-3xl mx-auto w-full bg-white dark:bg-gray-900"
           style={{
-            paddingBottom: 'max(env(safe-area-inset-bottom), 0.25rem)'
+            paddingBottom: shouldReserveSpaceForNav 
+              ? 'calc(4rem + max(env(safe-area-inset-bottom), 1rem))'
+              : 'calc(max(env(safe-area-inset-bottom), 0.5rem) + 0.75rem)'
           }}
         >
           
@@ -1813,22 +1933,16 @@ const TopicChat = ({ topic, onClose }) => {
                 </div>
                 
                 <div className="flex-1 flex items-center gap-1 min-w-0">
-                  {[...Array(15)].map((_, i) => {
-                    const baseHeight = 4 + Math.sin(i * 0.7) * 8;
-                    const delay = i * 80;
-                    
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 bg-white/90 rounded-full animate-recording-wave"
-                        style={{ 
-                          height: `${baseHeight}px`,
-                          minHeight: '4px',
-                          animationDelay: `${delay}ms`
-                        }}
-                      />
-                    );
-                  })}
+                  {audioWaveform.map((height, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 bg-white/90 rounded-full transition-all duration-100"
+                      style={{ 
+                        height: `${Math.max(4, 4 + height * 24)}px`,
+                        minHeight: '4px'
+                      }}
+                    />
+                  ))}
                 </div>
                 
                 <span className="text-sm sm:text-base text-white font-mono font-bold whitespace-nowrap">
@@ -1858,14 +1972,14 @@ const TopicChat = ({ topic, onClose }) => {
           )}
 
           {/* Main Input Bar */}
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 mb-1">
             {/* Emoji Button - Left Side */}
             <button
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
+              className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
               title="Add emoji"
             >
-              <FaceSmileIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+              <FaceSmileIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
             </button>
             
             {/* Input Field - Center */}
@@ -1899,10 +2013,10 @@ const TopicChat = ({ topic, onClose }) => {
               <>
                 <button
                   onClick={() => setShowMediaMenu(!showMediaMenu)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
+                  className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
                   title="Attach media"
                 >
-                  <PhotoIcon className="h-6 w-6 text-gray-600 dark:text-gray-400" />
+                  <PhotoIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                 </button>
 
                 <button
@@ -1913,10 +2027,10 @@ const TopicChat = ({ topic, onClose }) => {
                   onTouchEnd={() => stopRecording()}
                   onTouchCancel={cancelRecording}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`p-2.5 rounded-full transition-all flex-shrink-0 select-none ${
+                  className={`p-2.5 rounded-full transition-all flex-shrink-0 select-none shadow-lg ${
                     isRecording
                       ? 'bg-red-500 hover:bg-red-600 text-white scale-110'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white'
                   }`}
                   title="Hold to record voice"
                 >
@@ -1967,7 +2081,7 @@ const TopicChat = ({ topic, onClose }) => {
                     <PhotoIcon className="h-6 w-6 sm:h-7 sm:w-7 text-white" strokeWidth={2} />
                   </div>
                   <span className="mt-2 text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Gallery</span>
-                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Choose photo</span>
+                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Photo & Video</span>
                 </button>
 
                 {/* Camera */}
@@ -1982,7 +2096,7 @@ const TopicChat = ({ topic, onClose }) => {
                     <CameraIcon className="h-6 w-6 sm:h-7 sm:w-7 text-white" strokeWidth={2} />
                   </div>
                   <span className="mt-2 text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">Camera</span>
-                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Take photo</span>
+                  <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Photo & Video</span>
                 </button>
               </div>
 
@@ -2001,14 +2115,14 @@ const TopicChat = ({ topic, onClose }) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         onChange={handleFileSelect}
         className="hidden"
       />
       <input
         type="file"
         ref={cameraInputRef}
-        accept="image/*"
+        accept="image/*,video/*"
         capture="environment"
         onChange={handleFileSelect}
         className="hidden"

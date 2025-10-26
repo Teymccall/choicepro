@@ -231,6 +231,14 @@ function Topics() {
     };
   }, [user?.uid, topics, selectedTopic?.id]);
 
+  // Ensure floating navigation returns when no topic chat is open
+  useEffect(() => {
+    if (!selectedTopic) {
+      sessionStorage.removeItem('openTopicChatId');
+      window.dispatchEvent(new Event('topicChatOpened'));
+    }
+  }, [selectedTopic]);
+
   // Early return if no user or partner
   if (!user || !partner) {
     return <NotConnected />;
@@ -394,9 +402,11 @@ function Topics() {
   };
 
   const handleCloseChat = () => {
-    // Clear the stored topic ID
+    // Clear the stored topic ID so nav shows again
     sessionStorage.removeItem('openTopicChatId');
     setSelectedTopic(null);
+    // Force a re-render of Layout by triggering a storage event
+    window.dispatchEvent(new Event('storage'));
   };
 
   const handleEditTopic = async (topicId, newQuestion) => {
@@ -592,6 +602,8 @@ function Topics() {
     const topic = topics.find(t => t.id === topicId);
     if (topic) {
       setSelectedTopic(topic);
+      // Signal to Layout that topic chat is open
+      sessionStorage.setItem('openTopicChatId', topicId);
     }
   };
 

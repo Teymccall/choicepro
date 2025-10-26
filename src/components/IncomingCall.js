@@ -37,11 +37,11 @@ const IncomingCall = ({ callerName, callerPhotoURL, callType, onAccept, onReject
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-      <div className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl p-8 max-w-sm w-full border border-gray-200 dark:border-gray-700">
+    <div className="fixed inset-0 z-[200] bg-gradient-to-b from-gray-900 via-black to-black flex items-center justify-center p-4 animate-fadeIn">
+      <div className="bg-white dark:bg-gray-800/90 backdrop-blur-xl rounded-3xl shadow-2xl p-10 max-w-md w-full">
         {/* Caller Info */}
-        <div className="text-center mb-8">
-          <div className={`w-24 h-24 mx-auto rounded-full overflow-hidden shadow-2xl ring-4 ring-blue-500/30 mb-4 ${isRinging ? 'animate-pulse' : ''}`}>
+        <div className="text-center mb-10">
+          <div className={`w-32 h-32 mx-auto rounded-full overflow-hidden shadow-2xl ring-8 ring-blue-500/20 mb-6 ${isRinging ? 'animate-pulse' : ''}`}>
             {callerPhotoURL ? (
               <img 
                 src={callerPhotoURL} 
@@ -75,28 +75,28 @@ const IncomingCall = ({ callerName, callerPhotoURL, callType, onAccept, onReject
         </div>
 
         {/* Call Actions */}
-        <div className="flex items-center justify-center space-x-6">
+        <div className="flex items-center justify-center space-x-12">
           {/* Reject Button */}
           <button
             onClick={onReject}
-            className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-lg"
+            className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-2xl"
           >
-            <XMarkIcon className="h-8 w-8 text-white" />
+            <XMarkIcon className="h-10 w-10 text-white" strokeWidth={3} />
           </button>
 
           {/* Accept Button */}
           <button
             onClick={onAccept}
-            className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-lg animate-pulse"
+            className="w-20 h-20 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-2xl animate-pulse"
           >
-            <PhoneIcon className="h-8 w-8 text-white" />
+            <PhoneIcon className="h-10 w-10 text-white" strokeWidth={3} />
           </button>
         </div>
 
         {/* Ringing Indicator */}
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400 animate-pulse">
-            {isRinging ? '🔔' : ' '} Incoming call...
+        <div className="mt-8 text-center">
+          <p className="text-base text-gray-400 dark:text-gray-500 font-medium">
+            Incoming call...
           </p>
         </div>
       </div>

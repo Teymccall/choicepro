@@ -202,8 +202,8 @@ const ConnectPartner = () => {
       await sendPartnerRequest(userId);
       toast.success(
         <div className="flex flex-col">
-          <span className="font-bold">Invite sent successfully! 🎉</span>
-          <span className="text-sm">{userName} will see it in their notifications</span>
+          <span className="font-bold">Invite sent! 🎉</span>
+          <span className="text-sm">Waiting for {userName} to accept...</span>
         </div>,
         {
           duration: 5000,
@@ -399,9 +399,9 @@ const ConnectPartner = () => {
           )}
 
           {success && (
-            <div className="flex items-center justify-center text-green-500 text-sm animate-bounce">
-              <CheckCircleIcon className="h-5 w-5 mr-1.5" />
-              Successfully connected!
+            <div className="flex items-center justify-center text-blue-500 text-sm animate-pulse">
+              <ClockIcon className="h-5 w-5 mr-1.5" />
+              Waiting to be connected...
             </div>
           )}
 

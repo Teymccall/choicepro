@@ -174,8 +174,8 @@ const Dashboard = () => {
   );
 
   return (
-    <div className="h-screen bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100 dark:from-black dark:via-gray-900 dark:to-black overflow-hidden flex flex-col">
-      <div className="flex-1 overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-3">
+    <div className="h-screen bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100 dark:from-black dark:via-gray-900 dark:to-black flex flex-col">
+      <div className="flex-1 overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-3 pb-24">
         {/* Header Section - Compact */}
         <div className="mb-3">
           <div className="flex items-center space-x-2 mb-1">

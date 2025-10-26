@@ -510,8 +510,21 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (!user) return;
 
-    // Track shown toasts to prevent duplicates
-    const shownToasts = new Set();
+    // Track shown toasts to prevent duplicates (persist across refreshes)
+    const shownToastsKey = `shownToasts_${user.uid}`;
+    const getShownToasts = () => {
+      try {
+        const stored = sessionStorage.getItem(shownToastsKey);
+        return stored ? new Set(JSON.parse(stored)) : new Set();
+      } catch {
+        return new Set();
+      }
+    };
+    
+    const shownToasts = getShownToasts();
+    const saveShownToasts = () => {
+      sessionStorage.setItem(shownToastsKey, JSON.stringify([...shownToasts]));
+    };
 
     // Listen for new partner requests where user is the recipient
     const q = query(
@@ -526,16 +539,17 @@ export const AuthProvider = ({ children }) => {
           const request = change.doc.data();
           const requestId = change.doc.id;
           
-          // Only show toast for new requests (not on initial load)
+          // Only show toast for new requests (not on initial load or refresh)
           if (shownToasts.has(requestId)) return;
           shownToasts.add(requestId);
+          saveShownToasts();
           
-          // Check if this is a fresh request (created in last 5 seconds)
+          // Check if this is a fresh request (created in last 3 seconds)
           const createdAt = request.createdAt?.toMillis() || 0;
           const now = Date.now();
-          const isFreshRequest = (now - createdAt) < 5000; // 5 seconds
+          const isFreshRequest = (now - createdAt) < 3000; // 3 seconds
           
-          // Only show floating toast for fresh requests
+          // Only show floating toast for very fresh requests
           if (!isFreshRequest) return;
           
           // Show floating glassmorphism toast with Accept/Decline buttons
@@ -602,7 +616,19 @@ export const AuthProvider = ({ children }) => {
                             toast.dismiss(t.id);
                             try {
                               await acceptPartnerRequest(requestId);
-                              toast.success('Partner request accepted! 🎉', {
+                              toast.success((t) => (
+                                <div className="flex items-center gap-3">
+                                  <span>Partner request accepted! 🎉</span>
+                                  <button
+                                    onClick={() => toast.dismiss(t.id)}
+                                    className="ml-2 text-gray-400 hover:text-gray-600 transition-colors"
+                                  >
+                                    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ), {
                                 duration: 3000,
                                 position: 'top-center',
                               });
@@ -886,7 +912,7 @@ export const AuthProvider = ({ children }) => {
                       });
 
                       setPartner(null);
-                      setDisconnectMessage(`${partnerDoc.data().displayName || 'Your partner'} has disconnected`);
+                      setDisconnectMessage(`${partnerDoc.data().displayName || 'Your partner'} has ended the partnership.`);
                     } catch (err) {
                       console.warn('Error handling partner disconnect:', err);
                     }
@@ -937,11 +963,30 @@ export const AuthProvider = ({ children }) => {
                 setPartner(null);
                 // Clean up RTDB connection
                 await remove(userStatusRef.current);
-              } else if (userData.partnerId && (!partner || partner.uid !== userData.partnerId)) {
+              } else if (userData.partnerId) {
+                // Always fetch fresh partner data when partnerId changes
+                // This ensures sender sees accepted request immediately
                 const partnerRef = doc(db, 'users', userData.partnerId);
                 const partnerDoc = await getDoc(partnerRef);
                 if (partnerDoc.exists()) {
-                  setPartner(partnerDoc.data());
+                  const partnerData = partnerDoc.data();
+                  setPartner(partnerData);
+                  console.log('✅ Partner updated:', partnerData.displayName);
+                  
+                  // Set up presence for newly connected partner
+                  const partnerPresenceRef = ref(rtdb, `presence/${userData.partnerId}`);
+                  const partnerPresenceUnsubscribe = onValue(partnerPresenceRef, (presenceSnapshot) => {
+                    if (presenceSnapshot.exists()) {
+                      const presenceData = presenceSnapshot.val();
+                      setPartner(current => ({
+                        ...current,
+                        isOnline: presenceData.isOnline,
+                        lastOnline: presenceData.lastOnline,
+                        connectionId: presenceData.connectionId
+                      }));
+                    }
+                  });
+                  listenerCleanups.current.push(partnerPresenceUnsubscribe);
                 }
               }
             }

@@ -177,7 +177,7 @@ const Results = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 dark:border-primary-400 mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-400">Loading results...</p>
@@ -188,7 +188,7 @@ const Results = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-black flex items-center justify-center">
         <div className="text-center">
           <div className="bg-red-50 dark:bg-red-900 text-red-700 dark:text-red-300 p-4 rounded-lg">
             <p>Error loading results: {error}</p>
@@ -207,7 +207,7 @@ const Results = () => {
   // Show message when not connected
   if (!isOnline || !partner?.email) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen bg-gray-50 dark:bg-black pt-20 pb-24">
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <div className="text-center py-12">
             <ChartBarIcon className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
@@ -222,153 +222,183 @@ const Results = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-black pt-16 pb-20 sm:pb-8">
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-6">
-        <div className="text-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Results & Statistics</h1>
-          <p className="mt-2 text-base sm:text-lg text-gray-600 dark:text-gray-400">
-            Track your progress and view insights together
-          </p>
-        </div>
-
-        {/* Stats Cards - Horizontal Scrolling on Mobile */}
-        <div className="mb-6 sm:mb-8 -mx-2 sm:mx-0">
-          <div className="flex gap-3 px-2 sm:px-0 overflow-x-auto pb-4 snap-x snap-mandatory">
-            {/* Total Topics Card */}
-            <div className="flex-none w-[80%] sm:w-56 snap-center bg-white dark:bg-black rounded-lg shadow p-4 transition-transform hover:scale-105 border border-gray-200 dark:border-gray-800">
-              <div className="inline-flex p-2 rounded-lg bg-black dark:bg-white">
-                <ChartBarIcon className="h-5 w-5 text-white dark:text-black" />
-              </div>
-              <h3 className="mt-3 text-base font-medium text-gray-900 dark:text-white">Total Topics</h3>
-              <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{stats.totalTopics}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Topics created together</p>
+    <div className="min-h-screen bg-gray-50 dark:bg-black overflow-y-auto">
+      <div className="px-4 lg:px-8 pt-4 pb-28 md:pb-24 space-y-5">
+        {/* Header Section */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-primary-500">
+              <div className="h-px w-10 bg-gradient-to-r from-blue-500 to-purple-500" />
+              Results Overview
             </div>
-
-            {/* Completed Card */}
-            <div className="flex-none w-[80%] sm:w-56 snap-center bg-white dark:bg-black rounded-lg shadow p-4 transition-transform hover:scale-105 border border-gray-200 dark:border-gray-800">
-              <div className="inline-flex p-2 rounded-lg bg-black dark:bg-white">
-                <CheckCircleIcon className="h-5 w-5 text-white dark:text-black" />
-              </div>
-              <h3 className="mt-3 text-base font-medium text-gray-900 dark:text-white">Completed</h3>
-              <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{stats.completedTopics}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Decisions made</p>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white sm:text-4xl">Results & Insights</h1>
+              <p className="mt-2 text-base text-gray-600 dark:text-gray-400 sm:text-lg">
+                Get a snapshot of how you and your partner are aligning across topics, and revisit detailed outcomes with actionable suggestions.
+              </p>
             </div>
+          </div>
 
-            {/* In Progress Card */}
-            <div className="flex-none w-[80%] sm:w-56 snap-center bg-white dark:bg-black rounded-lg shadow p-4 transition-transform hover:scale-105 border border-gray-200 dark:border-gray-800">
-              <div className="inline-flex p-2 rounded-lg bg-black dark:bg-white">
-                <ClockIcon className="h-5 w-5 text-white dark:text-black" />
-              </div>
-              <h3 className="mt-3 text-base font-medium text-gray-900 dark:text-white">In Progress</h3>
-              <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{stats.pendingTopics}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Active discussions</p>
+          {/* Quick Summary */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 lg:self-start">
+            <div className="rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-gray-800/70 dark:bg-gray-900/80">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Agreement Rate</span>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{stats.agreementRate.toFixed(1)}%</p>
             </div>
-
-            {/* Agreement Rate Card */}
-            <div className="flex-none w-[80%] sm:w-56 snap-center bg-white dark:bg-black rounded-lg shadow p-4 transition-transform hover:scale-105 border border-gray-200 dark:border-gray-800">
-              <div className="inline-flex p-2 rounded-lg bg-black dark:bg-white">
-                <TagIcon className="h-5 w-5 text-white dark:text-black" />
-              </div>
-              <h3 className="mt-3 text-base font-medium text-gray-900 dark:text-white">Agreement Rate</h3>
-              <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{stats.agreementRate.toFixed(1)}%</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Overall alignment</p>
+            <div className="rounded-2xl border border-gray-200/70 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-gray-800/70 dark:bg-gray-900/80">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Completed</span>
+              <p className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">{stats.completedTopics}</p>
             </div>
           </div>
         </div>
 
+        {/* Stats Grid */}
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              title: 'Total Topics',
+              value: stats.totalTopics,
+              description: 'Topics created together',
+              icon: ChartBarIcon,
+              accent: 'from-blue-500 to-purple-500'
+            },
+            {
+              title: 'Completed',
+              value: stats.completedTopics,
+              description: 'Decisions made',
+              icon: CheckCircleIcon,
+              accent: 'from-emerald-500 to-teal-500'
+            },
+            {
+              title: 'In Progress',
+              value: stats.pendingTopics,
+              description: 'Active discussions',
+              icon: ClockIcon,
+              accent: 'from-amber-500 to-orange-500'
+            },
+            {
+              title: 'Agreement Rate',
+              value: `${stats.agreementRate.toFixed(1)}%`,
+              description: 'Overall alignment',
+              icon: TagIcon,
+              accent: 'from-indigo-500 to-violet-500'
+            }
+          ].map(({ title, value, description, icon: Icon, accent }) => (
+            <div
+              key={title}
+              className="group relative overflow-hidden rounded-2xl border border-gray-200/70 bg-white/90 p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-gray-800/70 dark:bg-gray-900/80"
+            >
+              <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${accent} opacity-80`} />
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
+                <div className="rounded-full bg-gray-100 p-2 text-gray-700 transition group-hover:scale-105 dark:bg-gray-800 dark:text-gray-200">
+                  <Icon className="h-5 w-5" />
+                </div>
+              </div>
+              <p className="mt-4 text-3xl font-semibold text-gray-900 dark:text-white">{value}</p>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent dark:via-gray-800" />
+
         {/* Results List */}
-        <div className="px-0">
-          <div className="space-y-4 sm:space-y-6">
-            {results.length > 0 ? (
-              results.map((result, index) => {
-                const userResponse = result.responses[user.uid]?.response;
-                const partnerResponse = result.responses[partner.uid]?.response;
-                
-                return (
-                  <div
-                    key={result.id}
-                    className={`bg-white dark:bg-black shadow p-4 sm:p-6 transform hover:scale-[1.02] hover:shadow-lg transition-all duration-200 animate-slide-up ${
-                      selectedResult === result.id ? 'ring-2 ring-primary-500' : ''
-                    }`}
-                    style={{ animationDelay: `${index * 200}ms` }}
-                    onClick={() => setSelectedResult(result.id)}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                      <div className="flex-1">
-                        <h3 className="text-base sm:text-lg font-medium text-gray-900 dark:text-white flex items-center group">
-                          <ChatBubbleLeftRightIcon className="h-5 w-5 mr-2 text-primary-600 dark:text-primary-400 group-hover:animate-bounce" />
-                          {result.question}
+        <div className="space-y-5">
+          {results.length > 0 ? (
+            results.map((result, index) => {
+              const userResponse = result.responses[user.uid]?.response;
+              const partnerResponse = result.responses[partner.uid]?.response;
+              const suggestions = getRandomSuggestions(result);
+              const notesEntries = result.notes ? Object.entries(result.notes) : [];
+
+              return (
+                <article
+                  key={result.id}
+                  className={`relative overflow-hidden rounded-3xl border border-gray-200/70 bg-white/90 p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl dark:border-gray-800/70 dark:bg-gray-900/85 ${
+                    selectedResult === result.id ? 'ring-2 ring-primary-500/80' : ''
+                  } animate-slide-up`}
+                  style={{ animationDelay: `${index * 160}ms` }}
+                  onClick={() => setSelectedResult(result.id)}
+                >
+                  <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${
+                    result.matched ? 'from-emerald-500 via-emerald-400 to-teal-400' : 'from-rose-500 via-fuchsia-500 to-purple-500'
+                  } opacity-80`} />
+
+                  <div className="flex flex-col gap-6">
+                    <header className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-gray-100/70 px-3 py-1 text-xs font-medium text-gray-600 dark:bg-gray-800/70 dark:text-gray-300">
+                          <TagIcon className="h-4 w-4" />
+                          {result.category}
+                        </div>
+                        <h3 className="text-xl font-semibold text-gray-900 dark:text-white sm:text-2xl flex items-start gap-2">
+                          <ChatBubbleLeftRightIcon className="h-6 w-6 text-primary-500" />
+                          <span>{result.question}</span>
                         </h3>
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-                          <span className="flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-md hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200">
-                            <TagIcon className="h-4 w-4 mr-1" />
-                            {result.category}
+                        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                          <span className="inline-flex items-center gap-2">
+                            <ClockIcon className="h-4 w-4" />
+                            {formatDate(result.completedAt || result.createdAt)}
                           </span>
-                          <span className="flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-md hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200">
-                            <UserGroupIcon className="h-4 w-4 mr-1" />
-                            {formatDate(result.createdAt)}
+                          <span className="inline-flex items-center gap-2">
+                            <UserGroupIcon className="h-4 w-4" />
+                            {partner.displayName || 'Partner'} &amp; {user.displayName || 'You'}
                           </span>
-                          {result.notes && (
-                            <span className="flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded-md hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-200">
-                              <ChatBubbleLeftRightIcon className="h-4 w-4 mr-1" />
-                              {Object.keys(result.notes).length} notes
+                          {notesEntries.length > 0 && (
+                            <span className="inline-flex items-center gap-2">
+                              <ChatBubbleLeftRightIcon className="h-4 w-4" />
+                              {notesEntries.length} note{notesEntries.length === 1 ? '' : 's'}
                             </span>
                           )}
                         </div>
                       </div>
-                      <div className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium inline-flex items-center transform transition-all duration-200 hover:scale-105 ${
-                        result.matched
-                          ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-400'
-                          : 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-400'
-                      }`}>
-                        {result.matched ? (
-                          <CheckCircleIcon className="h-5 w-5 mr-1.5 animate-bounce-in" />
-                        ) : (
-                          <XCircleIcon className="h-5 w-5 mr-1.5 animate-bounce-in" />
-                        )}
-                        {result.matched ? 'Match' : 'Mismatch'}
-                      </div>
-                    </div>
 
-                    {/* Responses */}
-                    <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200">
-                        <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center">
-                          <UserIcon className="h-4 w-4 mr-1.5" />
+                      <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold ${
+                        result.matched
+                          ? 'border-emerald-400/40 bg-emerald-50 text-emerald-600 dark:border-emerald-400/40 dark:bg-emerald-900/30 dark:text-emerald-300'
+                          : 'border-rose-400/40 bg-rose-50 text-rose-600 dark:border-rose-400/40 dark:bg-rose-900/30 dark:text-rose-300'
+                      }`}
+                      >
+                        {result.matched ? (
+                          <CheckCircleIcon className="h-5 w-5" />
+                        ) : (
+                          <XCircleIcon className="h-5 w-5" />
+                        )}
+                        {result.matched ? 'Aligned Decisions' : 'Needs Follow-up'}
+                      </div>
+                    </header>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className={`rounded-2xl border border-gray-200/60 p-5 transition-all duration-200 hover:border-primary-400 hover:shadow-lg dark:border-gray-800/60 dark:hover:border-primary-400/60 ${
+                        userResponse ? 'bg-emerald-50/70 dark:bg-emerald-900/20' : 'bg-rose-50/70 dark:bg-rose-900/20'
+                      }`}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                          <UserIcon className="h-4 w-4" />
                           Your Response
                         </p>
-                        <p className={`text-lg font-medium flex items-center mt-2 ${
-                          userResponse
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
+                        <p className={`mt-3 flex items-center gap-2 text-2xl font-semibold ${
+                          userResponse ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'
                         }`}>
-                          {userResponse ? (
-                            <CheckCircleIcon className="h-6 w-6 mr-2 animate-bounce-in" />
-                          ) : (
-                            <XCircleIcon className="h-6 w-6 mr-2 animate-bounce-in" />
-                          )}
-                          {userResponse ? 'Yes' : 'No'}
+                          {userResponse ? 'Agreed' : 'Disagreed'}
                         </p>
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                           {result.responses[user.uid]?.timestamp ? formatDate(result.responses[user.uid].timestamp) : ''}
                         </p>
                       </div>
-                      <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200">
-                        <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center">
-                          <UserGroupIcon className="h-4 w-4 mr-1.5" />
+
+                      <div className={`rounded-2xl border border-gray-200/60 p-5 transition-all duration-200 hover:border-primary-400 hover:shadow-lg dark:border-gray-800/60 dark:hover:border-primary-400/60 ${
+                        partnerResponse ? 'bg-emerald-50/70 dark:bg-emerald-900/20' : 'bg-rose-50/70 dark:bg-rose-900/20'
+                      }`}>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                          <UserGroupIcon className="h-4 w-4" />
                           {partner.displayName || 'Partner'}'s Response
                         </p>
-                        <p className={`text-lg font-medium flex items-center mt-2 ${
-                          partnerResponse
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
+                        <p className={`mt-3 flex items-center gap-2 text-2xl font-semibold ${
+                          partnerResponse ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'
                         }`}>
-                          {partnerResponse ? (
-                            <CheckCircleIcon className="h-6 w-6 mr-2 animate-bounce-in" />
-                          ) : (
-                            <XCircleIcon className="h-6 w-6 mr-2 animate-bounce-in" />
-                          )}
-                          {partnerResponse ? 'Yes' : 'No'}
+                          {partnerResponse ? 'Agreed' : 'Disagreed'}
                         </p>
                         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                           {result.responses[partner.uid]?.timestamp ? formatDate(result.responses[partner.uid].timestamp) : ''}
@@ -376,78 +406,100 @@ const Results = () => {
                       </div>
                     </div>
 
-                    {/* Notes Section */}
-                    <div className="mt-6">
-                      <h4 className="text-sm font-medium text-gray-900 dark:text-white flex items-center">
-                        <ChatBubbleLeftRightIcon className="h-5 w-5 mr-1.5 text-primary-600 dark:text-primary-400" />
-                        Anonymous Notes
-                      </h4>
-                      {result.notes?.length > 0 ? (
-                        <ul className="mt-2 space-y-2">
-                          {Object.entries(result.notes).map(([key, note]) => (
-                            <li
-                              key={key}
-                              className="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 animate-slide-up"
-                            >
-                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                                <p className="flex-1">{note.text}</p>
-                                <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
-                                  {formatDate(note.createdAt)}
-                                </span>
-                              </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-2xl border border-gray-200/60 bg-gray-50/80 p-5 dark:border-gray-800/60 dark:bg-gray-800/40">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                          <LightBulbIcon className="h-5 w-5 text-primary-500" />
+                          Suggested next steps
+                        </h4>
+                        <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                          {suggestions.map((tip, tipIndex) => (
+                            <li key={tipIndex} className="flex gap-2">
+                              <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full bg-primary-400" />
+                              <span>{tip}</span>
                             </li>
                           ))}
                         </ul>
-                      ) : (
-                        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No notes yet</p>
-                      )}
+                      </div>
 
-                      {/* Add Note Form */}
-                      <div className="mt-4">
-                        <textarea
-                          value={note}
-                          onChange={(e) => setNote(e.target.value)}
-                          placeholder="Add an anonymous note..."
-                          className="w-full rounded-lg border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 transition-all duration-200"
-                          rows="2"
-                          disabled={!isOnline}
-                        />
-                        <button
-                          onClick={() => handleAddNote(result.id)}
-                          className={`mt-2 w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transform transition-all duration-200 hover:scale-105 active:scale-95 ${
-                            isSubmitting ? 'opacity-75 cursor-wait' : ''
-                          } disabled:opacity-50 disabled:hover:scale-100`}
-                          disabled={!note.trim() || isSubmitting || !isOnline}
-                        >
-                          <PaperAirplaneIcon className={`h-5 w-5 mr-1.5 ${
-                            isSubmitting ? 'animate-spin' : ''
-                          }`} />
-                          {isSubmitting ? 'Sending...' : 'Add Note'}
-                        </button>
+                      <div className="rounded-2xl border border-gray-200/60 bg-white/70 p-5 dark:border-gray-800/60 dark:bg-gray-900/50">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                            <ChatBubbleLeftRightIcon className="h-5 w-5 text-primary-500" />
+                            Anonymous Notes
+                          </h4>
+                          {notesEntries.length > 0 && (
+                            <span className="text-xs font-medium text-gray-400 dark:text-gray-500">
+                              {notesEntries.length} shared
+                            </span>
+                          )}
+                        </div>
+
+                        {notesEntries.length > 0 ? (
+                          <ul className="mt-3 space-y-2 max-h-40 overflow-y-auto pr-1">
+                            {notesEntries.map(([key, noteEntry]) => (
+                              <li
+                                key={key}
+                                className="rounded-xl border border-gray-200/40 bg-gray-50/80 p-3 text-sm text-gray-600 transition hover:border-primary-400 dark:border-gray-800/40 dark:bg-gray-800/40 dark:text-gray-300"
+                              >
+                                <p>{noteEntry.text}</p>
+                                <span className="mt-1 block text-xs text-gray-400 dark:text-gray-500">
+                                  {formatDate(noteEntry.createdAt)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No notes yet. Share reflections to capture key decisions.</p>
+                        )}
+
+                        <div className="mt-4 space-y-3">
+                          <textarea
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            placeholder="Add an anonymous note..."
+                            className="w-full rounded-xl border border-gray-300/70 bg-white/70 p-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-primary-500 dark:border-gray-700/70 dark:bg-gray-800/70 dark:text-white dark:placeholder-gray-400"
+                            rows="3"
+                            disabled={!isOnline}
+                          />
+                          <button
+                            onClick={() => handleAddNote(result.id)}
+                            className={`inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:shadow-purple-500/20 sm:w-auto ${
+                              isSubmitting ? 'opacity-70 cursor-wait' : ''
+                            } disabled:opacity-50 disabled:hover:from-blue-600 disabled:hover:to-purple-600`}
+                            disabled={!note.trim() || isSubmitting || !isOnline}
+                          >
+                            <PaperAirplaneIcon className={`h-5 w-5 ${isSubmitting ? 'animate-spin' : ''}`} />
+                            {isSubmitting ? 'Sending...' : 'Add Note'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                );
-              })
-            ) : (
-              <div className="text-center py-12">
-                <ChartBarIcon className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No results yet</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Complete some topics together to see your results here
-                </p>
-                <div className="mt-6">
-                  <Link
-                    to="/topics"
-                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-black hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-200 transition-colors"
-                  >
-                    <PlusCircleIcon className="h-5 w-5 mr-2" />
-                    Create New Topic
-                  </Link>
-                </div>
+                </article>
+              );
+            })
+          ) : (
+            <div className="relative overflow-hidden rounded-3xl border border-dashed border-gray-300/60 bg-white/80 py-16 text-center shadow-sm dark:border-gray-700/60 dark:bg-gray-900/70">
+              <div className="absolute inset-x-10 -top-24 h-48 rounded-full bg-gradient-to-b from-blue-500/20 to-purple-500/10 blur-3xl" />
+              <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 text-white shadow-lg shadow-blue-500/30">
+                <ChartBarIcon className="h-9 w-9" />
               </div>
-            )}
-          </div>
+              <h3 className="mt-6 text-xl font-semibold text-gray-900 dark:text-white">No results yet</h3>
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                Complete some topics together to start building your shared insights.
+              </p>
+              <div className="mt-8">
+                <Link
+                  to="/topics"
+                  className="inline-flex items-center gap-2 rounded-full border border-transparent bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                >
+                  <PlusCircleIcon className="h-5 w-5" />
+                  Create New Topic
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
