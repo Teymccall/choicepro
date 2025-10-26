@@ -98,6 +98,86 @@ const VideoCall = ({
     };
   }, [localVideoRef, callStatus]);
 
+  // Ensure remote media (audio/video) actually plays once call is active (mobile autoplay guard)
+  useEffect(() => {
+    if (callStatus !== 'active') return;
+
+    const mediaEl = remoteVideoRef?.current;
+    if (!mediaEl) return;
+
+    let isCleaningUp = false;
+
+    const enableRemoteTracks = () => {
+      const stream = mediaEl.srcObject;
+      if (!stream) return;
+      stream.getAudioTracks()?.forEach((track) => {
+        if (!track.enabled) {
+          track.enabled = true;
+          console.log('🔊 Re-enabled remote audio track:', track.id);
+        }
+      });
+    };
+
+    const attemptPlayback = (reason) => {
+      if (!mediaEl.srcObject) {
+        console.log('⏳ Remote media srcObject not ready - will retry');
+        return;
+      }
+
+      mediaEl.muted = false;
+      mediaEl.defaultMuted = false;
+      mediaEl.volume = 1.0;
+
+      const promise = mediaEl.play();
+      if (promise && typeof promise.then === 'function') {
+        promise
+          .then(() => console.log(`▶️ Remote media playing (${reason})`))
+          .catch((err) => console.warn(`⚠️ Remote media play blocked (${reason}):`, err));
+      }
+    };
+
+    // Resume shared AudioContext on iOS if needed
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        window.__choiceAudioCtx = window.__choiceAudioCtx || new AudioCtx();
+        if (window.__choiceAudioCtx.state === 'suspended') {
+          window.__choiceAudioCtx.resume().catch((err) => console.warn('⚠️ AudioContext resume failed:', err));
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Unable to resume AudioContext:', err);
+    }
+
+    enableRemoteTracks();
+    attemptPlayback('initial');
+
+    const handleInteraction = () => {
+      if (isCleaningUp) return;
+      enableRemoteTracks();
+      attemptPlayback('user-interaction');
+    };
+
+    const interactionEvents = ['touchend', 'pointerup', 'click'];
+    interactionEvents.forEach((eventName) => {
+      document.addEventListener(eventName, handleInteraction, { passive: true });
+    });
+
+    const retryInterval = setInterval(() => {
+      if (isCleaningUp) return;
+      enableRemoteTracks();
+      attemptPlayback('interval');
+    }, 2000);
+
+    return () => {
+      isCleaningUp = true;
+      clearInterval(retryInterval);
+      interactionEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, handleInteraction, { passive: true });
+      });
+    };
+  }, [callStatus, remoteVideoRef]);
+
   // Ensure local video plays when ref is available
   useEffect(() => {
     if (localVideoRef?.current && localVideoRef.current.srcObject) {
