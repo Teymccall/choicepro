@@ -1139,7 +1139,10 @@ export const AuthProvider = ({ children }) => {
                     const partnerRef = doc(db, 'users', userData.partnerId);
                     const partnerDoc = await getDoc(partnerRef);
                     if (partnerDoc.exists()) {
-                      setPartner(partnerDoc.data());
+                      setPartner({
+                        uid: userData.partnerId,
+                        ...partnerDoc.data()
+                      });
                     }
                   } catch (error) {
                     console.error('Error fetching partner data:', error);
