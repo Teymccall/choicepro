@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { XMarkIcon, ArrowDownTrayIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 const ImageViewer = ({ image, onClose, disappearingTimer, viewedAt }) => {

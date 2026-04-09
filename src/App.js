@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebRTCProvider } from './context/WebRTCContext';
@@ -7,7 +7,6 @@ import LoadingSpinner from './components/LoadingSpinner';
 import NotificationHandler from './components/NotificationHandler';
 import SplashScreen from './components/SplashScreen';
 // CallManager removed - using WebRTC system in Layout.js
-import ConnectionStatus from './components/ConnectionStatus';
 import TestGenerateCode from './components/TestGenerateCode';
 import { Toaster } from 'react-hot-toast';
 

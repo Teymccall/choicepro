@@ -3,25 +3,18 @@ import { useAuth } from '../context/AuthContext';
 import {
   PaperAirplaneIcon,
   XMarkIcon,
-  UserCircleIcon,
   ChatBubbleLeftRightIcon,
   PhotoIcon,
   DocumentIcon,
-  XCircleIcon,
   CameraIcon,
-  ArrowUturnLeftIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   FaceSmileIcon,
   CheckIcon,
   TrashIcon,
   PencilIcon,
   MicrophoneIcon,
-  EllipsisVerticalIcon,
   ArrowLeftIcon,
   PhoneIcon,
   VideoCameraIcon,
-  PaperClipIcon,
   PlayIcon,
   PauseIcon,
   ClockIcon
@@ -29,17 +22,10 @@ import {
 import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { uploadMedia, validateFile } from '../utils/mediaUpload';
-import cld from '../config/cloudinary';
-import { AdvancedImage } from '@cloudinary/react';
-import { fill } from '@cloudinary/url-gen/actions/resize';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 import ProfilePicture from './ProfilePicture';
-import { getRelationshipLevel, RELATIONSHIP_LEVELS } from '../utils/relationshipLevels';
 import ImageViewer from './ImageViewer';
 import Message from './Message';
-import { formatTime } from '../utils/dateUtils';
-import { toast } from 'react-hot-toast';
-import { Timestamp } from 'firebase/firestore';
 import { 
   sanitizeInput, 
   validateMessage, 
@@ -55,13 +41,6 @@ import {
 } from '../utils/screenshotProtection';
 import { useWebRTCContext } from '../context/WebRTCContext';
 
-// Define DisconnectionNotice component outside of TopicChat
-const DisconnectionNotice = () => (
-  <div className="absolute top-0 left-0 right-0 bg-yellow-500 text-white px-4 py-2 text-center">
-    Partner disconnected. Some features may be limited.
-  </div>
-);
-
 const TopicChat = ({ topic, onClose }) => {
   const { user, partner, isOnline } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -71,9 +50,6 @@ const TopicChat = ({ topic, onClose }) => {
     return savedDraft || '';
   });
   const [loading, setLoading] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [isTyping, setIsTyping] = useState(false);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -127,11 +103,7 @@ const TopicChat = ({ topic, onClose }) => {
     return !(topic?.isDirectChat || isDirectChatRoute || hasTopicChatOpen);
   });
   const [partnerData, setPartnerData] = useState(partner);
-  const [messageCount, setMessageCount] = useState(0);
-  const [relationshipLevel, setRelationshipLevel] = useState({ level: 'Acquaintance', color: 'text-gray-600 dark:text-gray-400' });
-  const [nextLevelProgress, setNextLevelProgress] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const topicInputRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const emojiPickerRef = useRef(null);

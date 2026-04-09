@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import {
   HomeIcon,
-  UserGroupIcon,
   ChatBubbleOvalLeftEllipsisIcon,
   ChatBubbleLeftRightIcon,
   ChartBarIcon,
@@ -16,7 +15,7 @@ import {
   PhoneIcon,
   VideoCameraIcon,
 } from '@heroicons/react/24/outline';
-import { ref, onValue, remove, update } from 'firebase/database';
+import { ref, onValue, remove } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import Notifications from './Notifications';
 import { useWebRTCContext } from '../context/WebRTCContext';
@@ -30,10 +29,8 @@ const Navigation = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
   const [notifications, setNotifications] = useState([]);
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [newTopics, setNewTopics] = useState(0);
   const [newDecisions, setNewDecisions] = useState(0);
-  const [hasUnreadItems, setHasUnreadItems] = useState(false);
 
   // Close notifications when clicking outside
   useEffect(() => {
@@ -393,38 +390,6 @@ const Navigation = () => {
       console.error('Error clearing all notifications:', error);
     }
   };
-
-  // Render notification dropdown
-  const renderNotificationsDropdown = () => {
-    if (!showNotifications) return null;
-    
-    return (
-      <div className="absolute right-0 mt-2 w-80 z-50 notifications-container">
-        <Notifications
-          notifications={notifications}
-          onClose={() => setShowNotifications(false)}
-          onClearNotification={handleClearNotification}
-        />
-      </div>
-    );
-  };
-
-  // Move the notification button to a separate component for reuse
-  const NotificationButton = ({ onClick, unreadCount }) => (
-    <button 
-      className="p-2 rounded-full hover:bg-gray-100 transition-colors duration-200 relative"
-      onClick={onClick}
-    >
-      <BellIcon className="h-6 w-6 text-gray-500" />
-      {unreadCount > 0 && (
-        <span className="absolute -top-1 -right-1 flex h-5 w-5">
-          <span className="relative inline-flex rounded-full h-5 w-5 bg-red-500 text-xs text-white items-center justify-center">
-            {unreadCount}
-          </span>
-        </span>
-      )}
-    </button>
-  );
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50">
