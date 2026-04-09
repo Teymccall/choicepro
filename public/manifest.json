@@ -1,0 +1,33 @@
+{
+  "short_name": "Choice",
+  "name": "Choice - Make Decisions Together",
+  "description": "A safe space for couples to explore and discuss topics together",
+  "icons": [
+    {
+      "src": "choice.png",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "choice_app_logo.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "choice_app_logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#6366f1",
+  "background_color": "#f3f4f6",
+  "categories": ["lifestyle", "social"],
+  "prefer_related_applications": false
+}
