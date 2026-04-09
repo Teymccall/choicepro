@@ -15,24 +15,13 @@ const Layout = ({ children }) => {
   const { user, partner } = useAuth();
   const webRTC = useWebRTCContext();
   const location = useLocation();
-  const [topicChatKey, setTopicChatKey] = React.useState(0);
   const isLoginPage = location.pathname === '/login';
   const isHomePage = location.pathname === '/';
   const isChatPage = location.pathname === '/chat';
   const isDashboardPage = location.pathname === '/dashboard';
   const isResultsPage = location.pathname === '/results';
   const isSettingsPage = location.pathname === '/settings';
-  const isTopicsPage = location.pathname === '/topics';
   const isTopicChatOpen = location.state?.topicChatOpen || sessionStorage.getItem('openTopicChatId');
-
-  // Listen for topic chat open/close events
-  React.useEffect(() => {
-    const handleStorageChange = () => {
-      setTopicChatKey(prev => prev + 1);
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
 
   // Don't show navigation on login page, chat page, or when topic chat is open
   // ALWAYS show nav on Dashboard, Results, and Settings pages (but NOT Topics when chat is open)

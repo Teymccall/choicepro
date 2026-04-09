@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Switch } from '@headlessui/react';
 import {
-  Cog6ToothIcon,
-  BellIcon,
   UserCircleIcon,
-  ShieldCheckIcon,
-  KeyIcon,
   EyeIcon,
   EyeSlashIcon,
   CheckCircleIcon,
@@ -15,13 +11,12 @@ import {
   MoonIcon,
   ComputerDesktopIcon,
   TrashIcon,
-  UserIcon,
   PaintBrushIcon,
   ArrowPathIcon,
   XCircleIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../context/AuthContext';
-import { ref, onValue, update, remove, get, serverTimestamp, set } from 'firebase/database';
+import { ref, onValue, update, get, serverTimestamp, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { updatePassword, updateProfile } from 'firebase/auth';
 import { cookieManager } from '../utils/cookieManager';
@@ -51,7 +46,7 @@ const Settings = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [showManual, setShowManual] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [notificationSettings, setNotificationSettings] = useState(() => {
     // Try to get from localStorage first

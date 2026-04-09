@@ -2,24 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   PlusIcon,
-  HandThumbUpIcon,
-  HandThumbDownIcon,
-  TagIcon,
   UserIcon,
   HeartIcon,
   HomeIcon,
   RocketLaunchIcon,
   ChatBubbleLeftRightIcon,
-  XMarkIcon,
   HashtagIcon,
-  CheckCircleIcon,
-  PencilIcon,
 } from '@heroicons/react/24/outline';
 import { ref, onValue, push, update, serverTimestamp, get, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import TopicChat from '../components/TopicChat';
 import TopicItem from '../components/TopicItem';
-import { formatDate } from '../utils/dateUtils';
 
 // Constants
 const CATEGORY_ICONS = {
@@ -60,7 +53,6 @@ function Topics() {
   const [error, setError] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedTopic, setSelectedTopic] = useState(null);
-  const [showAddTopic, setShowAddTopic] = useState(false);
   const [newTopicQuestion, setNewTopicQuestion] = useState('');
   const [newTopicCategory, setNewTopicCategory] = useState('Custom');
   const [unreadMessagesByTopic, setUnreadMessagesByTopic] = useState({});
@@ -378,28 +370,6 @@ function Topics() {
     }
   };
 
-  const handleTopicView = (topic) => {
-    // Clear unread states immediately before opening chat
-    setUnreadMessagesByTopic(prev => ({
-      ...prev,
-      [topic.id]: false
-    }));
-    setUnreadResponses(prev => ({
-      ...prev,
-      [topic.id]: false
-    }));
-    
-    // Store the open topic ID
-    sessionStorage.setItem('openTopicChatId', topic.id);
-    
-    // Update timestamps
-    localStorage.setItem(`lastRead_${topic.id}_${user.uid}`, Date.now().toString());
-    localStorage.setItem(`lastChecked_${topic.id}_${user.uid}`, Date.now().toString());
-    localStorage.setItem(`lastChecked_topics_${user.uid}`, Date.now().toString());
-    
-    // Open the topic chat
-    setSelectedTopic(topic);
-  };
 
   const handleCloseChat = () => {
     // Clear the stored topic ID so nav shows again
@@ -409,115 +379,7 @@ function Topics() {
     window.dispatchEvent(new Event('storage'));
   };
 
-  const handleEditTopic = async (topicId, newQuestion) => {
-    if (!isOnline) {
-      setError('You must be online to edit topics');
-      return;
-    }
 
-    try {
-      const topicRef = ref(rtdb, `topics/${topicId}`);
-      const snapshot = await get(topicRef);
-      
-      if (!snapshot.exists()) {
-        setError('Topic not found');
-        return;
-      }
-
-      const topicData = snapshot.val();
-      
-      // Verify user is the creator
-      if (topicData.createdBy !== user.uid) {
-        setError('You can only edit topics you created');
-        return;
-      }
-
-      // Check if anyone has responded
-      if (topicData.responses && Object.keys(topicData.responses).length > 0) {
-        setError('Cannot edit topic after responses have been made');
-        return;
-      }
-
-      await update(topicRef, {
-        question: newQuestion,
-        updatedAt: serverTimestamp()
-      });
-
-      // Send notification to partner
-      if (partner?.uid) {
-        const notificationRef = ref(rtdb, `notifications/${partner.uid}`);
-        const notificationData = {
-          type: 'topic_edited',
-          title: 'Topic Edited',
-          body: `${user.displayName || 'Your partner'} has edited a topic`,
-          topicId: topicId,
-          timestamp: serverTimestamp()
-        };
-        
-        await update(notificationRef, {
-          [Date.now()]: notificationData
-        });
-      }
-
-    } catch (err) {
-      console.error('Error editing topic:', err);
-      setError('Failed to edit topic. Please try again.');
-    }
-  };
-
-  const handleDeleteTopic = async (topicId) => {
-    if (!isOnline) {
-      setError('You must be online to delete topics');
-      return;
-    }
-
-    try {
-      setError(null);
-      
-      // Get the current topic data
-      const topicRef = ref(rtdb, `topics/${topicId}`);
-      const snapshot = await get(topicRef);
-      
-      if (!snapshot.exists()) {
-        setError('Topic not found');
-        return;
-      }
-
-      const topicData = snapshot.val();
-      
-      // Verify user is the creator
-      if (topicData.createdBy !== user.uid) {
-        setError('You can only delete topics you created');
-        return;
-      }
-
-      // Delete the topic
-      await set(topicRef, null);
-
-      // Delete associated chat messages
-      const chatRef = ref(rtdb, `topicChats/${topicId}`);
-      await set(chatRef, null);
-
-      // Send notification to partner
-      if (partner?.uid) {
-        const notificationRef = ref(rtdb, `notifications/${partner.uid}`);
-        const notificationData = {
-          type: 'topic_deleted',
-          title: 'Topic Deleted',
-          body: `${user.displayName || 'Your partner'} has deleted the topic "${topicData.question}"`,
-          timestamp: serverTimestamp()
-        };
-        
-        await update(notificationRef, {
-          [Date.now()]: notificationData
-        });
-      }
-
-    } catch (err) {
-      console.error('Error deleting topic:', err);
-      setError('Failed to delete topic. Please try again.');
-    }
-  };
 
   // eslint-disable-next-line no-unused-vars
   const categories = ['All', 'Relationship', 'Household', 'Future', 'Communication', 'Custom'];

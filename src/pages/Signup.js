@@ -4,7 +4,6 @@ import { useAuth } from '../context/AuthContext';
 import { 
   EyeIcon,
   EyeSlashIcon,
-  CheckIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
 
@@ -15,7 +14,6 @@ export default function Signup() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordFocus, setPasswordFocus] = useState(false);
   
   const { signup, user } = useAuth();
   const navigate = useNavigate();
@@ -122,8 +120,6 @@ export default function Signup() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  onFocus={() => setPasswordFocus(true)}
-                  onBlur={() => setPasswordFocus(false)}
                   className="w-full px-4 py-3 pr-10 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all shadow-sm"
                 />
                 <button

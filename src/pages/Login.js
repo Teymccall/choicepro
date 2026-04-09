@@ -3,57 +3,38 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { cookieManager } from '../utils/cookieManager';
 import { 
-  ArrowRightIcon,
-  CheckCircleIcon,
-  XCircleIcon,
   EyeIcon,
   EyeSlashIcon,
-  XMarkIcon
+  XCircleIcon
 } from '@heroicons/react/24/outline';
-import { setPersistence, browserLocalPersistence, signInWithEmailAndPassword } from 'firebase/auth';
+
 import { ref, onValue } from 'firebase/database';
 import { auth, rtdb } from '../firebase/config';
 
 export default function Login() {
-  const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordFocus, setPasswordFocus] = useState(false);
-  const [showCookieConsent, setShowCookieConsent] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   
-  const { login, signup, signInWithGoogle, user } = useAuth();
+  const { login, signInWithGoogle, user } = useAuth();
   const navigate = useNavigate();
 
   // Check for cookie consent and saved credentials on mount
   useEffect(() => {
-    if (!cookieManager.hasConsent()) {
-      setShowCookieConsent(true);
-    } else {
-      // Only load saved state if user has given consent
-      const savedEmail = cookieManager.getSavedEmail();
-      const wasRemembered = cookieManager.getRememberMe();
-      
-      if (savedEmail && wasRemembered) {
-        setEmail(savedEmail);
-        setRememberMe(true);
-      }
+    // Only load saved state if user has given consent
+    const savedEmail = cookieManager.getSavedEmail();
+    const wasRemembered = cookieManager.getRememberMe();
+    
+    if (savedEmail && wasRemembered) {
+      setEmail(savedEmail);
+      setRememberMe(true);
     }
   }, []);
 
-  // Password requirements
-  const requirements = [
-    { text: 'At least 8 characters', met: password.length >= 8 },
-    { text: 'At least one uppercase letter', met: /[A-Z]/.test(password) },
-    { text: 'At least one number', met: /[0-9]/.test(password) },
-    { text: 'At least one special character', met: /[^A-Za-z0-9]/.test(password) },
-  ];
 
   useEffect(() => {
     if (user) {
@@ -66,7 +47,6 @@ export default function Login() {
     try {
       setIsLoading(true);
       setError('');
-      setSuccess('');
       setIsConnecting(true);
 
       // Use the context's login function
@@ -105,7 +85,6 @@ export default function Login() {
     try {
       setIsLoading(true);
       setError('');
-      setSuccess('');
       setIsConnecting(true);
       
       const user = await signInWithGoogle();
@@ -161,8 +140,7 @@ export default function Login() {
         setError('Sign-in was cancelled. Please try again if you want to sign in with Google.');
       } else if (err.message.includes('IdP')) {
         setError('Google sign-in was declined. You can try again or use email to sign in.');
-      } else if (err.message.includes('verify your email')) {
-        setSuccess(err.message);
+
       } else if (err.message === 'Connection timeout') {
         setError('Connection timed out. Please check your internet and try again.');
       } else if (err.message === 'No connection to database') {
@@ -177,22 +155,8 @@ export default function Login() {
     }
   };
 
-  const toggleMode = () => {
-    setIsSignup(!isSignup);
-    setError('');
-    setSuccess('');
-    setPassword('');
-    
-    // Clear email only if remember me is not checked
-    if (!rememberMe) {
-      setEmail('');
-    }
-    setDisplayName('');
-  };
-
   const handleCookieConsent = (accepted) => {
     cookieManager.setConsent(accepted);
-    setShowCookieConsent(false);
     
     if (!accepted) {
       // Clear all saved data if cookies are declined

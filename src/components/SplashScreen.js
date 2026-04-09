@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const DISPLAY_DURATION_MS = 2400;
 const FADE_DURATION_MS = 500;

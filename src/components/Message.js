@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   CheckIcon,
   XMarkIcon,
@@ -7,15 +7,13 @@ import {
   PencilIcon,
   TrashIcon,
   ClockIcon,
-  EllipsisVerticalIcon,
-  DocumentIcon,
   PlayIcon,
   PauseIcon,
   MicrophoneIcon
 } from '@heroicons/react/24/outline';
 import { CheckIcon as CheckIconSolid } from '@heroicons/react/24/solid';
 import { formatTime } from '../utils/dateUtils';
-import { ref, set, update, serverTimestamp } from 'firebase/database';
+import { ref, set, update } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 
 // Voice Note Player Component
@@ -137,13 +135,13 @@ const DisappearingMediaRenderer = ({ message, topicId, onImageClick, isOwnMessag
   const [isViewed, setIsViewed] = useState(!!message.media?.viewedAt);
   const [hasExpired, setHasExpired] = useState(!!message.media?.expired);
 
-  const getExpirationTime = () => {
+  const getExpirationTime = useCallback(() => {
     if (!message.media?.viewedAt || !message.media?.disappearingTimer) return null;
     const viewedTime = typeof message.media.viewedAt === 'number'
       ? message.media.viewedAt
       : new Date(message.media.viewedAt).getTime();
     return viewedTime + (message.media.disappearingTimer * 1000);
-  };
+  }, [message.media?.viewedAt, message.media?.disappearingTimer]);
 
   useEffect(() => {
     if (hasExpired) return;
@@ -170,7 +168,7 @@ const DisappearingMediaRenderer = ({ message, topicId, onImageClick, isOwnMessag
     checkTime();
     const interval = setInterval(checkTime, 1000);
     return () => clearInterval(interval);
-  }, [message.media?.viewedAt, hasExpired, topicId, message.id]);
+  }, [message.media?.viewedAt, hasExpired, topicId, message.id, getExpirationTime]);
 
   const formatCountdown = (ms) => {
     if (!ms) return '';
@@ -315,9 +313,8 @@ const DisappearingMediaRenderer = ({ message, topicId, onImageClick, isOwnMessag
   );
 };
 
-const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, messageRefs, onDelete, onEdit, onStartEdit }) => {
+const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, messageRefs, onDelete, onStartEdit }) => {
   const [showMenu, setShowMenu] = useState(false);
-  const [isDeleted, setIsDeleted] = useState(message.deleted);
   const menuRef = useRef(null);
   const timeString = formatTime(message.timestamp);
   const messageRef = useRef(null);
@@ -326,7 +323,6 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
   const swipeThreshold = 50;
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const longPressTimeout = useRef(null);
-  const [isLongPressed, setIsLongPressed] = useState(false);
   const [error, setError] = useState('');
   const [isReplying, setIsReplying] = useState(false);
 
@@ -350,9 +346,6 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
     return Date.now() - messageTime <= DELETE_TIME_WINDOW;
   };
 
-  useEffect(() => {
-    setIsDeleted(message.deleted);
-  }, [message.deleted]);
 
   useEffect(() => {
     if (messageRef.current) {
@@ -389,11 +382,7 @@ const Message = ({ message, isOwnMessage, user, topicId, onReply, onImageClick, 
     }
   };
 
-  const handleMessageClick = () => {
-    if (onReply) {
-      onReply(message);
-    }
-  };
+
 
   const handleDelete = async (deleteForEveryone = false) => {
     if (!isWithinDeleteWindow() && deleteForEveryone) {

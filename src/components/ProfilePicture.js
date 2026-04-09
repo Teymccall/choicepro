@@ -60,7 +60,7 @@ const ProfilePicture = ({
     if (!isCurrentUser || !user?.uid) return;
 
     const userSettingsRef = ref(rtdb, `userSettings/${user.uid}/profile`);
-    const unsubscribe = onValue(userSettingsRef, (snapshot) => {
+    onValue(userSettingsRef, (snapshot) => {
       if (snapshot.exists()) {
         const profileData = snapshot.val();
         if (profileData.photoURL) {

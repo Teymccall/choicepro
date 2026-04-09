@@ -5,7 +5,6 @@ import {
   ArrowRightIcon,
   CheckCircleIcon,
   XCircleIcon,
-  WifiIcon,
   ClockIcon,
   PlusCircleIcon,
   ClipboardDocumentIcon,
@@ -13,7 +12,7 @@ import {
   ArrowLeftIcon,
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
-import { Dialog, Transition } from '@headlessui/react';
+import { Dialog } from '@headlessui/react';
 import { toast } from 'react-hot-toast';
 
 const ConnectPartner = () => {
@@ -28,7 +27,6 @@ const ConnectPartner = () => {
   const [searchError, setSearchError] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
   const [sendingInviteTo, setSendingInviteTo] = useState(null);
   const { 
     user, 
@@ -43,14 +41,9 @@ const ConnectPartner = () => {
     clearDisconnectMessage,
     searchUsers,
     sendPartnerRequest,
-    pendingRequests,
-    acceptPartnerRequest,
-    declinePartnerRequest,
-    setPendingRequests,
   } = useAuth();
 
   const inputRef = useRef(null);
-  const searchTimeout = useRef(null);
 
   // Calculate time left for active invite code
   useEffect(() => {
@@ -174,27 +167,6 @@ const ConnectPartner = () => {
     }
   };
 
-  const handleSearch = async () => {
-    if (!searchTerm || searchTerm.length < 2) {
-      setSearchError('Please enter at least 2 characters');
-      return;
-    }
-
-    setIsSearching(true);
-    setSearchError('');
-    try {
-      const results = await searchUsers(searchTerm);
-      setSearchResults(results);
-      if (results.length === 0) {
-        setSearchError('No users found');
-      }
-    } catch (error) {
-      setSearchError(error.message);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
   const handleSendRequest = async (userId, userName) => {
     setSendingInviteTo(userId);
     setError('');
@@ -223,29 +195,6 @@ const ConnectPartner = () => {
       });
     } finally {
       setSendingInviteTo(null);
-    }
-  };
-
-  const handleDeclineRequest = async (requestId) => {
-    if (!requestId) return;
-    
-    setIsLoading(true);
-    try {
-      await declinePartnerRequest(requestId);
-      
-      // Show success notification
-      toast.success('Request declined successfully', {
-        duration: 3000,
-        position: 'top-center',
-      });
-    } catch (error) {
-      // Show error notification
-      toast.error(error.message || 'Failed to decline request', {
-        duration: 4000,
-        position: 'top-center',
-      });
-    } finally {
-      setIsLoading(false);
     }
   };
 

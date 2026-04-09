@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   BellIcon,
-  CheckCircleIcon,
   ExclamationCircleIcon,
   XMarkIcon,
   UserPlusIcon,
@@ -10,7 +9,7 @@ import {
   PhoneIcon,
   VideoCameraIcon
 } from '@heroicons/react/24/outline';
-import { ref, onValue, remove, update } from 'firebase/database';
+import { ref, onValue, remove } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { useNavigate } from 'react-router-dom';
 
@@ -23,7 +22,7 @@ const NotificationTypes = {
 };
 
 const Notifications = () => {
-  const { user, partner, acceptPartnerRequest, declinePartnerRequest } = useAuth();
+  const { user, acceptPartnerRequest, declinePartnerRequest } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [processingRequest, setProcessingRequest] = useState(null);
@@ -124,26 +123,6 @@ const Notifications = () => {
     }
   };
 
-  const handleNotificationClick = async (notification) => {
-    if (notification.type === 'chat_message') {
-      // Store the topic ID to open the chat when navigating
-      sessionStorage.setItem('openChatTopicId', notification.topicId);
-      
-      // If we're already on the topics page, dispatch an event to open the chat
-      if (window.location.pathname === '/topics') {
-        window.dispatchEvent(new CustomEvent('openTopicChat', {
-          detail: { topicId: notification.topicId }
-        }));
-      } else {
-        navigate('/topics');
-      }
-    }
-    
-    // Clear this notification
-    if (handleDismiss) {
-      handleDismiss(notification.id);
-    }
-  };
 
   const getNotificationContent = (notification) => {
     switch (notification.type) {

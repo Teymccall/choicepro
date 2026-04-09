@@ -17,7 +17,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { ref, onValue, remove } from 'firebase/database';
 import { rtdb } from '../firebase/config';
-import Notifications from './Notifications';
 import { useWebRTCContext } from '../context/WebRTCContext';
 
 const Navigation = () => {
@@ -31,7 +30,6 @@ const Navigation = () => {
   const [notifications, setNotifications] = useState([]);
   const [newTopics, setNewTopics] = useState(0);
   const [newDecisions, setNewDecisions] = useState(0);
-  const [hasUnreadItems, setHasUnreadItems] = useState(false);
 
   // Close notifications when clicking outside
   useEffect(() => {
@@ -138,7 +136,7 @@ const Navigation = () => {
     });
 
     return () => unsubscribe();
-  }, [user?.uid]);
+  }, [user?.uid, partner?.uid]);
 
   // Add effect to clear badges when viewing topics
   useEffect(() => {
@@ -235,10 +233,8 @@ const Navigation = () => {
       const data = snapshot.val();
       if (!data) return;
 
-      let hasUnread = false;
-
       // Check each topic for unread messages or responses
-      Object.entries(data).forEach(([topicId, topic]) => {
+      Object.entries(data).forEach(([topicId]) => {
         // Check for unread messages
         const chatRef = ref(rtdb, `topicChats/${topicId}`);
         onValue(chatRef, (chatSnapshot) => {
@@ -246,23 +242,15 @@ const Navigation = () => {
           if (!messages) return;
 
           const lastReadTimestamp = parseInt(localStorage.getItem(`lastRead_${topicId}_${user.uid}`)) || 0;
-          const hasUnreadMessages = Object.values(messages).some(message => 
+          Object.values(messages).some(message => 
             message.userId !== user.uid && 
             message.timestamp > lastReadTimestamp
           );
 
           // Check for unread responses
-          const partnerResponse = topic.responses?.[partner.uid];
-          const lastCheckedResponse = parseInt(localStorage.getItem(`lastChecked_${topicId}_${user.uid}`)) || 0;
-          const hasUnreadResponse = partnerResponse && partnerResponse.timestamp > lastCheckedResponse;
-
-          if (hasUnreadMessages || hasUnreadResponse) {
-            hasUnread = true;
-          }
+          // hasUnreadItems was removed as it was not used in JSX
         });
       });
-
-      setHasUnreadItems(hasUnread);
     });
 
     return () => unsubscribe();

@@ -184,7 +184,7 @@ export const AuthProvider = ({ children }) => {
       console.log('Firestore connection state:', state);
     });
     return () => unsubscribe();
-  }, []);
+  }, [onFirestoreConnectionStateChange]);
 
   // Helper function to create resilient snapshot listeners
   const createResilientSnapshot = (query, onSuccess, onError, listenerId) => {
@@ -293,6 +293,545 @@ export const AuthProvider = ({ children }) => {
     };
   };
 
+  // Handle authentication errors
+  const handleAuthError = React.useCallback((error) => {
+    console.error('Auth error:', error);
+    setError(null);
+    let errorMessage = '';
+    
+    switch (error.code) {
+      case 'auth/user-not-found':
+        errorMessage = 'No account found with this email address.';
+        break;
+      case 'auth/wrong-password':
+        errorMessage = 'Incorrect password. Please try again.';
+        break;
+      case 'auth/invalid-email':
+        errorMessage = 'Invalid email address format.';
+        break;
+      case 'auth/user-disabled':
+        errorMessage = 'This account has been disabled.';
+        break;
+      case 'auth/email-already-in-use':
+        errorMessage = 'An account with this email already exists.';
+        break;
+      case 'auth/operation-not-allowed':
+        errorMessage = 'Email/password sign-in is not enabled.';
+        break;
+      case 'auth/weak-password':
+        errorMessage = 'Password should be at least 6 characters.';
+        break;
+      case 'auth/network-request-failed':
+        errorMessage = 'Network error. Please check your internet connection.';
+        break;
+      case 'auth/too-many-requests':
+        errorMessage = 'Too many failed attempts. Please try again later.';
+        break;
+      case 'auth/invalid-credential':
+        errorMessage = 'Invalid login credentials. Please check your email and password.';
+        break;
+      case 'auth/invalid-login-credentials':
+        errorMessage = 'Invalid login credentials. Please check your email and password.';
+        break;
+      default:
+        errorMessage = error.message || 'An error occurred during authentication.';
+    }
+    
+    setError(errorMessage);
+  }, []);
+
+  // Initialize user data after sign up or sign in
+  const initializeUserData = React.useCallback(async (user) => {
+    if (!user) return;
+    
+    try {
+      // Check if the user already has a partner before clearing anything
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      const hasPartner = userDocSnap.exists() && userDocSnap.data().partnerId;
+
+      // Only clear connections/notifications for users WITHOUT an active partner
+      // This prevents destroying established partnerships on every sign-in
+      if (!hasPartner) {
+        const notificationsRef = ref(rtdb, `notifications/${user.uid}`);
+        await set(notificationsRef, null);
+
+        const connectionsRef = ref(rtdb, `connections/${user.uid}`);
+        await set(connectionsRef, null);
+        
+        setPartner(null);
+      }
+      
+      setDisconnectMessage(null);
+
+      // Initialize user settings with defaults
+      const userSettingsRef = ref(rtdb, `userSettings/${user.uid}`);
+      const defaultSettings = {
+        notifications: {
+          chatMessages: true,
+          topicResponses: true,
+          systemNotifications: true
+        },
+        theme: {
+          preference: 'light',
+          updatedAt: serverTimestamp()
+        },
+        privacy: {
+          showProfile: true,
+          anonymousNotes: false
+        },
+        profile: {
+          displayName: user.displayName || '',
+          email: user.email || '',
+          updatedAt: serverTimestamp()
+        }
+      };
+
+      // Only set if not exists
+      const snapshot = await get(userSettingsRef);
+      if (!snapshot.exists()) {
+        await set(userSettingsRef, defaultSettings);
+      } else {
+        // Update any missing sections while preserving existing settings
+        const currentSettings = snapshot.val();
+        const updatedSettings = {
+          notifications: { ...defaultSettings.notifications, ...currentSettings?.notifications },
+          theme: { ...defaultSettings.theme, ...currentSettings?.theme },
+          privacy: { ...defaultSettings.privacy, ...currentSettings?.privacy },
+          profile: { ...defaultSettings.profile, ...currentSettings?.profile }
+        };
+        await update(userSettingsRef, updatedSettings);
+      }
+    } catch (error) {
+      console.error('Error initializing user data:', error);
+    }
+  }, []);
+
+  // Setup database listeners with improved connection handling
+  const setupDatabaseListeners = React.useCallback(async (user) => {
+    if (!user) return;
+
+    try {
+      // Set up presence system with retry logic
+      presenceRef.current = ref(rtdb, '.info/connected');
+      userStatusRef.current = ref(rtdb, `connections/${user.uid}`);
+      const userPresenceRef = ref(rtdb, `presence/${user.uid}`);
+
+      const presenceUnsubscribe = onValue(presenceRef.current, async (snapshot) => {
+        try {
+          if (!snapshot.val()) {
+            setConnectionState('disconnected');
+            return;
+          }
+
+          setConnectionState('connected');
+          connectionRetryCount.current = 0;
+
+          // Set up disconnect handlers with validation
+          await withConnectionRetry(async () => {
+            const disconnectRef = onDisconnect(userStatusRef.current);
+            await disconnectRef.remove();
+
+            const presenceDisconnectRef = onDisconnect(userPresenceRef);
+            await presenceDisconnectRef.update({
+              isOnline: false,
+              lastOnline: serverTimestamp()
+            });
+          });
+
+          // Check if there's an existing partnership
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists() && userDoc.data().partnerId) {
+            const partnerId = userDoc.data().partnerId;
+
+            // Set current connection status with retry
+            await withConnectionRetry(async () => {
+              await set(userStatusRef.current, {
+                partnerId: partnerId,
+                lastActive: serverTimestamp(),
+                status: 'online',
+                connectionId: Date.now().toString() // Add unique connection ID
+              });
+
+              await set(userPresenceRef, {
+                isOnline: true,
+                lastOnline: serverTimestamp(),
+                connectionId: Date.now().toString()
+              });
+            });
+
+            // Set up partner monitoring with improved error handling
+            const partnerDoc = await getDoc(doc(db, 'users', partnerId));
+            if (partnerDoc.exists()) {
+              setPartner({ uid: partnerId, ...partnerDoc.data() });
+
+              const partnerPresenceRef = ref(rtdb, `presence/${partnerId}`);
+              const partnerPresenceUnsubscribe = onValue(partnerPresenceRef, (presenceSnapshot) => {
+                if (presenceSnapshot.exists()) {
+                  const presenceData = presenceSnapshot.val();
+                  setPartner(current => ({
+                    ...current,
+                    isOnline: presenceData.isOnline,
+                    lastOnline: presenceData.lastOnline,
+                    connectionId: presenceData.connectionId
+                  }));
+                }
+              });
+
+              // Monitor partner connection with improved validation
+              const partnerConnectionRef = ref(rtdb, `connections/${partnerId}`);
+              const partnerConnectionUnsubscribe = onValue(partnerConnectionRef, async (connectionSnapshot) => {
+                if (!connectionSnapshot.exists()) {
+                  // Validate disconnection before clearing partnership
+                  const freshPartnerDoc = await getDoc(doc(db, 'users', partnerId));
+                  if (!freshPartnerDoc.exists() || !freshPartnerDoc.data().partnerId) {
+                    // Partner has truly disconnected on their side
+                    // We only need to update our own document
+
+                    // Update current user's document
+                    const currentUserRef = doc(db, 'users', user.uid);
+                    await updateDoc(currentUserRef, {
+                      partnerId: null,
+                      partnerDisplayName: null,
+                      lastUpdated: Timestamp.now()
+                    });
+
+                    try {
+                      await withConnectionRetry(async () => {
+                        await remove(userStatusRef.current);
+                        await update(userPresenceRef, {
+                          isOnline: true,
+                          lastOnline: serverTimestamp()
+                        });
+                      });
+
+                      setPartner(null);
+                      setDisconnectMessage(`${partnerDoc.data().displayName || 'Your partner'} has ended the partnership.`);
+                    } catch (err) {
+                      console.warn('Error handling partner disconnect:', err);
+                    }
+                  }
+                }
+              });
+
+              listenerCleanups.current.push(partnerPresenceUnsubscribe);
+              listenerCleanups.current.push(partnerConnectionUnsubscribe);
+            }
+          } else {
+            // Set basic connection status if no partner
+            await withConnectionRetry(async () => {
+              await set(userStatusRef.current, {
+                lastActive: serverTimestamp(),
+                status: 'online',
+                connectionId: Date.now().toString()
+              });
+
+              await set(userPresenceRef, {
+                isOnline: true,
+                lastOnline: serverTimestamp(),
+                connectionId: Date.now().toString()
+              });
+            });
+          }
+        } catch (error) {
+          console.error('Error in presence system:', error);
+          if (connectionRetryCount.current < MAX_CONNECTION_RETRIES) {
+            connectionRetryCount.current++;
+            setTimeout(() => setupDatabaseListeners(user), CONNECTION_RETRY_DELAY);
+          }
+        }
+      });
+
+      listenerCleanups.current.push(presenceUnsubscribe);
+
+
+    } catch (error) {
+      console.error('Error setting up database listeners:', error);
+      if (connectionRetryCount.current < MAX_CONNECTION_RETRIES) {
+        connectionRetryCount.current++;
+        setTimeout(() => setupDatabaseListeners(user), CONNECTION_RETRY_DELAY);
+      }
+    }
+  }, []);
+
+  // Cleanup database listeners
+  const cleanupDatabaseListeners = React.useCallback(async () => {
+    try {
+      // Clean up all listeners
+      listenerCleanups.current.forEach(cleanup => cleanup());
+      listenerCleanups.current = [];
+
+      // Clear all snapshot retry timers
+      snapshotRetryTimers.current.forEach((timer) => clearTimeout(timer));
+      snapshotRetryTimers.current.clear();
+
+      // Clean up presence refs
+      if (presenceRef.current) {
+        off(presenceRef.current);
+      }
+      if (userStatusRef.current) {
+        // Cancel any onDisconnect operations
+        await onDisconnect(userStatusRef.current).cancel();
+        // Remove the connection
+        await remove(userStatusRef.current);
+      }
+
+      // Reset states
+      setPartner(null);
+      setActiveInviteCode(null);
+      setDisconnectMessage(null);
+    } catch (error) {
+      console.error('Error cleaning up database listeners:', error);
+    }
+  }, []);
+
+  // Add acceptPartnerRequest function
+  const acceptPartnerRequest = React.useCallback(async (requestId) => {
+    try {
+      const requestDoc = await getDoc(doc(db, 'partnerRequests', requestId));
+      if (!requestDoc.exists()) {
+        throw new Error('Partner request not found');
+      }
+      
+      const request = requestDoc.data();
+      if (request.status !== 'pending') {
+        throw new Error('This request is no longer valid');
+      }
+      
+      if (request.recipientId !== user.uid) {
+        throw new Error('You are not authorized to accept this request');
+      }
+      
+      // Update request status
+      const requestRef = doc(db, 'partnerRequests', requestId);
+      await updateDoc(requestRef, {
+        status: 'accepted',
+        acceptedAt: Timestamp.now(),
+        recipientName: user.displayName || 'User' // Add recipient name for notification
+      });
+
+      // Update both users
+      const batch = writeBatch(db);
+      const senderRef = doc(db, 'users', request.senderId);
+      const recipientRef = doc(db, 'users', user.uid);
+      
+      batch.update(senderRef, {
+        partnerId: user.uid,
+        partnerDisplayName: user.displayName
+      });
+      
+      batch.update(recipientRef, {
+        partnerId: request.senderId,
+        partnerDisplayName: request.senderName,
+        pendingRequests: arrayRemove(requestId)
+      });
+      
+      await batch.commit();
+      
+      // Send notification to sender (best-effort)
+      try {
+        const notificationRef = ref(rtdb, `notifications/${request.senderId}`);
+        await update(notificationRef, {
+          [Date.now()]: {
+            type: 'request_accepted',
+            message: `${user.displayName || 'Someone'} has accepted your connection request`,
+            timestamp: serverTimestamp()
+          }
+        });
+      } catch (notifErr) {
+        console.warn('Could not send accept notification (non-fatal):', notifErr.message);
+      }
+
+      // Set up RTDB connection entry for this user (mirrors connectPartner flow)
+      try {
+        const userConnectionRef = ref(rtdb, `connections/${user.uid}`);
+        await set(userConnectionRef, {
+          partnerId: request.senderId,
+          lastActive: serverTimestamp(),
+          status: 'online'
+        });
+      } catch (rtdbErr) {
+        console.warn('Could not set RTDB connection (non-fatal):', rtdbErr.message);
+      }
+
+      // Re-initialize database listeners so presence monitoring works
+      try {
+        await setupDatabaseListeners(user);
+      } catch (listenerErr) {
+        console.warn('Could not setup listeners after accept (non-fatal):', listenerErr.message);
+      }
+
+      // Fetch fresh partner data and set state with uid
+      const partnerDoc = await getDoc(senderRef);
+      if (partnerDoc.exists()) {
+        setPartner({
+          uid: request.senderId,
+          ...partnerDoc.data()
+        });
+        console.log('✅ Partner connected after accepting request:', request.senderId);
+      }
+    } catch (error) {
+      console.error('Error accepting partner request:', error);
+      throw new Error('Failed to accept partner request. Please try again.');
+    }
+  }, [user, setupDatabaseListeners]);
+
+  // Add declinePartnerRequest function
+  const declinePartnerRequest = React.useCallback(async (requestId) => {
+    if (!user) throw new Error('You must be logged in to decline a partner request');
+    
+    try {
+      // Get the request document first
+      const requestRef = doc(db, 'partnerRequests', requestId);
+      const requestDoc = await getDoc(requestRef);
+      
+      if (!requestDoc.exists()) {
+        throw new Error('Partner request not found');
+      }
+      
+      const request = requestDoc.data();
+      
+      // Validate the request
+      if (request.status !== 'pending') {
+        throw new Error('This request is no longer valid');
+      }
+      
+      if (request.recipientId !== user.uid) {
+        throw new Error('You are not authorized to decline this request');
+      }
+
+      // Update the request status directly
+      await updateDoc(requestRef, {
+        status: 'declined',
+        declinedAt: Timestamp.now(),
+        declinedBy: user.uid,
+        recipientName: user.displayName || 'User' // Add recipient name for notification
+      });
+
+      // Remove from pending requests
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        pendingRequests: arrayRemove(requestId)
+      });
+
+      // Send notification to sender
+      const notificationRef = ref(rtdb, `notifications/${request.senderId}`);
+      await update(notificationRef, {
+        [Date.now()]: {
+          type: 'request_declined',
+          message: `${user.displayName || 'Someone'} has declined your connection request`,
+          timestamp: serverTimestamp()
+        }
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error declining partner request:', error);
+      if (error.code === 'permission-denied') {
+        throw new Error('You do not have permission to decline this request');
+      }
+      throw new Error('Failed to decline the request. Please try again.');
+    }
+  }, [user]);
+
+  // Add searchUsers function
+  const searchUsers = React.useCallback(async (searchTerm) => {
+    if (!searchTerm || searchTerm.length < 2) return [];
+    
+    try {
+      const usersRef = collection(db, 'users');
+      const searchTermLower = searchTerm.toLowerCase();
+      
+      // Get all users and filter client-side for better search
+      const usersSnapshot = await getDocs(usersRef);
+      const results = new Map();
+      
+      usersSnapshot.forEach((doc) => {
+        const userData = doc.data();
+        // Don't include current user or users who are already connected
+        if (doc.id !== user?.uid && !userData.partnerId) {
+          const displayName = userData.displayName || '';
+          const email = userData.email || '';
+          
+          // Case insensitive search on both display name and email
+          if (displayName.toLowerCase().includes(searchTermLower) || 
+              email.toLowerCase().includes(searchTermLower)) {
+            results.set(doc.id, {
+              id: doc.id,
+              displayName: userData.displayName,
+              email: userData.email
+            });
+          }
+        }
+      });
+      
+      return Array.from(results.values());
+    } catch (error) {
+      console.error('Error searching users:', error);
+      throw new Error('Failed to search for users. Please try again.');
+    }
+  }, [user]);
+
+  // Add sendPartnerRequest function
+  const sendPartnerRequest = React.useCallback(async (targetUserId) => {
+    if (!user) throw new Error('You must be logged in to send a partner request');
+    
+    try {
+      const requestRef = doc(collection(db, 'partnerRequests'));
+      
+      await setDoc(requestRef, {
+        senderId: user.uid,
+        senderName: user.displayName || user.email,
+        senderEmail: user.email,
+        senderPhotoURL: user.photoURL || null,
+        recipientId: targetUserId,
+        status: 'pending',
+        createdAt: firestoreTimestamp(),
+        expiresAt: Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000)) // 30 minutes expiry
+      });
+      
+      // Create notification in Realtime Database for recipient (best-effort)
+      // Primary delivery is via the Firestore partnerRequests snapshot listener
+      try {
+        const notificationRef = ref(rtdb, `notifications/${targetUserId}/${requestRef.id}`);
+        await set(notificationRef, {
+          type: 'partner_request',
+          senderId: user.uid,
+          senderName: user.displayName || user.email,
+          senderEmail: user.email,
+          senderPhotoURL: user.photoURL || null,
+          requestId: requestRef.id,
+          message: `${user.displayName || user.email} wants to connect with you`,
+          timestamp: Date.now(),
+          read: false
+        });
+      } catch (rtdbError) {
+        console.warn('Could not write RTDB notification (non-fatal):', rtdbError.message);
+      }
+      
+      // Also update the recipient's user document to ensure they get notified
+      // This is best-effort — the partnerRequests listener will still deliver the request
+      // even if this step fails due to Firestore rules.
+      try {
+        const recipientRef = doc(db, 'users', targetUserId);
+        await updateDoc(recipientRef, {
+          pendingRequests: arrayUnion(requestRef.id),
+          lastNotificationTimestamp: firestoreTimestamp()
+        });
+      } catch (updateError) {
+        // Non-fatal: the partner request was already created in partnerRequests.
+        // The recipient's snapshot listener will still receive it.
+        console.warn('Could not update recipient pendingRequests (non-fatal):', updateError.message);
+      }
+      
+      console.log('✅ Partner request sent successfully:', requestRef.id);
+      return requestRef.id;
+    } catch (error) {
+      console.error('Error sending partner request:', error);
+      throw new Error('Failed to send partner request. Please try again.');
+    }
+  }, [user]);
+
   // Add listener for partner requests
   useEffect(() => {
     if (!user) return;
@@ -374,105 +913,7 @@ export const AuthProvider = ({ children }) => {
       unsubscribe();
       userUnsubscribe();
     };
-  }, [user]);
-
-  // Add searchUsers function
-  const searchUsers = async (searchTerm) => {
-    if (!searchTerm || searchTerm.length < 2) return [];
-    
-    try {
-      const usersRef = collection(db, 'users');
-      const searchTermLower = searchTerm.toLowerCase();
-      
-      // Get all users and filter client-side for better search
-      const usersSnapshot = await getDocs(usersRef);
-      const results = new Map();
-      
-      usersSnapshot.forEach((doc) => {
-        const userData = doc.data();
-        // Don't include current user or users who are already connected
-        if (doc.id !== user?.uid && !userData.partnerId) {
-          const displayName = userData.displayName || '';
-          const email = userData.email || '';
-          
-          // Case insensitive search on both display name and email
-          if (displayName.toLowerCase().includes(searchTermLower) || 
-              email.toLowerCase().includes(searchTermLower)) {
-            results.set(doc.id, {
-              id: doc.id,
-              displayName: userData.displayName,
-              email: userData.email
-            });
-          }
-        }
-      });
-      
-      return Array.from(results.values());
-    } catch (error) {
-      console.error('Error searching users:', error);
-      throw new Error('Failed to search for users. Please try again.');
-    }
-  };
-
-  // Add sendPartnerRequest function
-  const sendPartnerRequest = async (targetUserId) => {
-    if (!user) throw new Error('You must be logged in to send a partner request');
-    
-    try {
-      const requestRef = doc(collection(db, 'partnerRequests'));
-      
-      await setDoc(requestRef, {
-        senderId: user.uid,
-        senderName: user.displayName || user.email,
-        senderEmail: user.email,
-        senderPhotoURL: user.photoURL || null,
-        recipientId: targetUserId,
-        status: 'pending',
-        createdAt: firestoreTimestamp(),
-        expiresAt: Timestamp.fromDate(new Date(Date.now() + 30 * 60 * 1000)) // 30 minutes expiry
-      });
-      
-      // Create notification in Realtime Database for recipient (best-effort)
-      // Primary delivery is via the Firestore partnerRequests snapshot listener
-      try {
-        const notificationRef = ref(rtdb, `notifications/${targetUserId}/${requestRef.id}`);
-        await set(notificationRef, {
-          type: 'partner_request',
-          senderId: user.uid,
-          senderName: user.displayName || user.email,
-          senderEmail: user.email,
-          senderPhotoURL: user.photoURL || null,
-          requestId: requestRef.id,
-          message: `${user.displayName || user.email} wants to connect with you`,
-          timestamp: Date.now(),
-          read: false
-        });
-      } catch (rtdbError) {
-        console.warn('Could not write RTDB notification (non-fatal):', rtdbError.message);
-      }
-      
-      // Also update the recipient's user document to ensure they get notified
-      // This is best-effort — the partnerRequests listener will still deliver the request
-      // even if this step fails due to Firestore rules.
-      try {
-        const recipientRef = doc(db, 'users', targetUserId);
-        await updateDoc(recipientRef, {
-          pendingRequests: arrayUnion(requestRef.id),
-          lastNotificationTimestamp: firestoreTimestamp()
-        });
-      } catch (updateError) {
-        // Non-fatal: the partner request was already created in partnerRequests.
-        // The recipient's snapshot listener will still receive it.
-        console.warn('Could not update recipient pendingRequests (non-fatal):', updateError.message);
-      }
-      
-      console.log('✅ Partner request sent successfully:', requestRef.id);
-      return requestRef.id;
-    } catch (error) {
-      console.error('Error sending partner request:', error);
-      throw new Error('Failed to send partner request. Please try again.');
-    }
-  };
+  }, [user, createResilientSnapshot, setupDatabaseListeners]);
 
   // Add listener for sent requests status changes
   useEffect(() => {
@@ -525,7 +966,7 @@ export const AuthProvider = ({ children }) => {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, setupDatabaseListeners]);
 
   // Add listener for incoming partner requests - show floating toast + notification bell
   useEffect(() => {
@@ -701,381 +1142,7 @@ export const AuthProvider = ({ children }) => {
     }, 'incomingRequests');
 
     return () => unsubscribe();
-  }, [user]);
-
-  // Add acceptPartnerRequest function
-  const acceptPartnerRequest = async (requestId) => {
-    try {
-      const requestDoc = await getDoc(doc(db, 'partnerRequests', requestId));
-      if (!requestDoc.exists()) {
-        throw new Error('Partner request not found');
-      }
-      
-      const request = requestDoc.data();
-      if (request.status !== 'pending') {
-        throw new Error('This request is no longer valid');
-      }
-      
-      if (request.recipientId !== user.uid) {
-        throw new Error('You are not authorized to accept this request');
-      }
-      
-      // Update request status
-      const requestRef = doc(db, 'partnerRequests', requestId);
-      await updateDoc(requestRef, {
-        status: 'accepted',
-        acceptedAt: Timestamp.now(),
-        recipientName: user.displayName || 'User' // Add recipient name for notification
-      });
-
-      // Update both users
-      const batch = writeBatch(db);
-      const senderRef = doc(db, 'users', request.senderId);
-      const recipientRef = doc(db, 'users', user.uid);
-      
-      batch.update(senderRef, {
-        partnerId: user.uid,
-        partnerDisplayName: user.displayName
-      });
-      
-      batch.update(recipientRef, {
-        partnerId: request.senderId,
-        partnerDisplayName: request.senderName,
-        pendingRequests: arrayRemove(requestId)
-      });
-      
-      await batch.commit();
-      
-      // Send notification to sender (best-effort)
-      try {
-        const notificationRef = ref(rtdb, `notifications/${request.senderId}`);
-        await update(notificationRef, {
-          [Date.now()]: {
-            type: 'request_accepted',
-            message: `${user.displayName || 'Someone'} has accepted your connection request`,
-            timestamp: serverTimestamp()
-          }
-        });
-      } catch (notifErr) {
-        console.warn('Could not send accept notification (non-fatal):', notifErr.message);
-      }
-
-      // Set up RTDB connection entry for this user (mirrors connectPartner flow)
-      try {
-        const userConnectionRef = ref(rtdb, `connections/${user.uid}`);
-        await set(userConnectionRef, {
-          partnerId: request.senderId,
-          lastActive: serverTimestamp(),
-          status: 'online'
-        });
-      } catch (rtdbErr) {
-        console.warn('Could not set RTDB connection (non-fatal):', rtdbErr.message);
-      }
-
-      // Re-initialize database listeners so presence monitoring works
-      try {
-        await setupDatabaseListeners(user);
-      } catch (listenerErr) {
-        console.warn('Could not setup listeners after accept (non-fatal):', listenerErr.message);
-      }
-
-      // Fetch fresh partner data and set state with uid
-      const partnerDoc = await getDoc(senderRef);
-      if (partnerDoc.exists()) {
-        setPartner({
-          uid: request.senderId,
-          ...partnerDoc.data()
-        });
-        console.log('✅ Partner connected after accepting request:', request.senderId);
-      }
-    } catch (error) {
-      console.error('Error accepting partner request:', error);
-      throw new Error('Failed to accept partner request. Please try again.');
-    }
-  };
-
-  // Add declinePartnerRequest function
-  const declinePartnerRequest = async (requestId) => {
-    if (!user) throw new Error('You must be logged in to decline a partner request');
-    
-    try {
-      // Get the request document first
-      const requestRef = doc(db, 'partnerRequests', requestId);
-      const requestDoc = await getDoc(requestRef);
-      
-      if (!requestDoc.exists()) {
-        throw new Error('Partner request not found');
-      }
-      
-      const request = requestDoc.data();
-      
-      // Validate the request
-      if (request.status !== 'pending') {
-        throw new Error('This request is no longer valid');
-      }
-      
-      if (request.recipientId !== user.uid) {
-        throw new Error('You are not authorized to decline this request');
-      }
-
-      // Update the request status directly
-      await updateDoc(requestRef, {
-        status: 'declined',
-        declinedAt: Timestamp.now(),
-        declinedBy: user.uid,
-        recipientName: user.displayName || 'User' // Add recipient name for notification
-      });
-
-      // Remove from pending requests
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        pendingRequests: arrayRemove(requestId)
-      });
-
-      // Send notification to sender
-      const notificationRef = ref(rtdb, `notifications/${request.senderId}`);
-      await update(notificationRef, {
-        [Date.now()]: {
-          type: 'request_declined',
-          message: `${user.displayName || 'Someone'} has declined your connection request`,
-          timestamp: serverTimestamp()
-        }
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Error declining partner request:', error);
-      if (error.code === 'permission-denied') {
-        throw new Error('You do not have permission to decline this request');
-      }
-      throw new Error('Failed to decline the request. Please try again.');
-    }
-  };
-
-  // Setup database listeners with improved connection handling
-  const setupDatabaseListeners = async (user) => {
-    if (!user) return;
-
-    try {
-      // Set up presence system with retry logic
-      presenceRef.current = ref(rtdb, '.info/connected');
-      userStatusRef.current = ref(rtdb, `connections/${user.uid}`);
-      const userPresenceRef = ref(rtdb, `presence/${user.uid}`);
-
-      const presenceUnsubscribe = onValue(presenceRef.current, async (snapshot) => {
-        try {
-          if (!snapshot.val()) {
-            setConnectionState('disconnected');
-            return;
-          }
-
-          setConnectionState('connected');
-          connectionRetryCount.current = 0;
-
-          // Set up disconnect handlers with validation
-          await withConnectionRetry(async () => {
-            const disconnectRef = onDisconnect(userStatusRef.current);
-            await disconnectRef.remove();
-
-            const presenceDisconnectRef = onDisconnect(userPresenceRef);
-            await presenceDisconnectRef.update({
-              isOnline: false,
-              lastOnline: serverTimestamp()
-            });
-          });
-
-          // Check if there's an existing partnership
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists() && userDoc.data().partnerId) {
-            const partnerId = userDoc.data().partnerId;
-            
-            // Set current connection status with retry
-            await withConnectionRetry(async () => {
-              await set(userStatusRef.current, {
-                partnerId: partnerId,
-                lastActive: serverTimestamp(),
-                status: 'online',
-                connectionId: Date.now().toString() // Add unique connection ID
-              });
-
-              await set(userPresenceRef, {
-                isOnline: true,
-                lastOnline: serverTimestamp(),
-                connectionId: Date.now().toString()
-              });
-            });
-
-            // Set up partner monitoring with improved error handling
-            const partnerDoc = await getDoc(doc(db, 'users', partnerId));
-            if (partnerDoc.exists()) {
-              setPartner({ uid: partnerId, ...partnerDoc.data() });
-
-              const partnerPresenceRef = ref(rtdb, `presence/${partnerId}`);
-              const partnerPresenceUnsubscribe = onValue(partnerPresenceRef, (presenceSnapshot) => {
-                if (presenceSnapshot.exists()) {
-                  const presenceData = presenceSnapshot.val();
-                  setPartner(current => ({
-                    ...current,
-                    isOnline: presenceData.isOnline,
-                    lastOnline: presenceData.lastOnline,
-                    connectionId: presenceData.connectionId
-                  }));
-                }
-              });
-
-              // Monitor partner connection with improved validation
-              const partnerConnectionRef = ref(rtdb, `connections/${partnerId}`);
-              const partnerConnectionUnsubscribe = onValue(partnerConnectionRef, async (connectionSnapshot) => {
-                if (!connectionSnapshot.exists()) {
-                  // Validate disconnection before clearing partnership
-                  const freshPartnerDoc = await getDoc(doc(db, 'users', partnerId));
-                  if (!freshPartnerDoc.exists() || !freshPartnerDoc.data().partnerId) {
-                    // Partner has truly disconnected on their side
-                    // We only need to update our own document
-                    
-                    // Update current user's document
-                    const currentUserRef = doc(db, 'users', user.uid);
-                    await updateDoc(currentUserRef, {
-                      partnerId: null,
-                      partnerDisplayName: null,
-                      lastUpdated: Timestamp.now()
-                    });
-
-                    try {
-                      await withConnectionRetry(async () => {
-                        await remove(userStatusRef.current);
-                        await update(userPresenceRef, {
-                          isOnline: true,
-                          lastOnline: serverTimestamp()
-                        });
-                      });
-
-                      setPartner(null);
-                      setDisconnectMessage(`${partnerDoc.data().displayName || 'Your partner'} has ended the partnership.`);
-                    } catch (err) {
-                      console.warn('Error handling partner disconnect:', err);
-                    }
-                  }
-                }
-              });
-
-              listenerCleanups.current.push(partnerPresenceUnsubscribe);
-              listenerCleanups.current.push(partnerConnectionUnsubscribe);
-            }
-          } else {
-            // Set basic connection status if no partner
-            await withConnectionRetry(async () => {
-              await set(userStatusRef.current, {
-                lastActive: serverTimestamp(),
-                status: 'online',
-                connectionId: Date.now().toString()
-              });
-
-              await set(userPresenceRef, {
-                isOnline: true,
-                lastOnline: serverTimestamp(),
-                connectionId: Date.now().toString()
-              });
-            });
-          }
-        } catch (error) {
-          console.error('Error in presence system:', error);
-          if (connectionRetryCount.current < MAX_CONNECTION_RETRIES) {
-            connectionRetryCount.current++;
-            setTimeout(() => setupDatabaseListeners(user), CONNECTION_RETRY_DELAY);
-          }
-        }
-      });
-
-      listenerCleanups.current.push(presenceUnsubscribe);
-
-
-    } catch (error) {
-      console.error('Error setting up database listeners:', error);
-      if (connectionRetryCount.current < MAX_CONNECTION_RETRIES) {
-        connectionRetryCount.current++;
-        setTimeout(() => setupDatabaseListeners(user), CONNECTION_RETRY_DELAY);
-      }
-    }
-  };
-
-  // Cleanup database listeners
-  const cleanupDatabaseListeners = async () => {
-    try {
-      // Clean up all listeners
-      listenerCleanups.current.forEach(cleanup => cleanup());
-      listenerCleanups.current = [];
-
-      // Clear all snapshot retry timers
-      snapshotRetryTimers.current.forEach((timer) => clearTimeout(timer));
-      snapshotRetryTimers.current.clear();
-
-      // Clean up presence refs
-      if (presenceRef.current) {
-        off(presenceRef.current);
-      }
-      if (userStatusRef.current) {
-        // Cancel any onDisconnect operations
-        await onDisconnect(userStatusRef.current).cancel();
-        // Remove the connection
-        await remove(userStatusRef.current);
-      }
-
-      // Reset states
-      setPartner(null);
-      setActiveInviteCode(null);
-      setDisconnectMessage(null);
-    } catch (error) {
-      console.error('Error cleaning up database listeners:', error);
-    }
-  };
-
-  // Handle authentication errors
-  const handleAuthError = (error) => {
-    console.error('Auth error:', error);
-    setError(null);
-    let errorMessage = '';
-    
-    switch (error.code) {
-      case 'auth/user-not-found':
-        errorMessage = 'No account found with this email address.';
-        break;
-      case 'auth/wrong-password':
-        errorMessage = 'Incorrect password. Please try again.';
-        break;
-      case 'auth/invalid-email':
-        errorMessage = 'Invalid email address format.';
-        break;
-      case 'auth/user-disabled':
-        errorMessage = 'This account has been disabled.';
-        break;
-      case 'auth/email-already-in-use':
-        errorMessage = 'An account with this email already exists.';
-        break;
-      case 'auth/operation-not-allowed':
-        errorMessage = 'Email/password sign-in is not enabled.';
-        break;
-      case 'auth/weak-password':
-        errorMessage = 'Password should be at least 6 characters.';
-        break;
-      case 'auth/network-request-failed':
-        errorMessage = 'Network error. Please check your internet connection.';
-        break;
-      case 'auth/too-many-requests':
-        errorMessage = 'Too many failed attempts. Please try again later.';
-        break;
-      case 'auth/invalid-credential':
-        errorMessage = 'Invalid login credentials. Please check your email and password.';
-        break;
-      case 'auth/invalid-login-credentials':
-        errorMessage = 'Invalid login credentials. Please check your email and password.';
-        break;
-      default:
-        errorMessage = error.message || 'An error occurred during authentication.';
-    }
-    
-    setError(errorMessage);
-  };
+  }, [user, acceptPartnerRequest, declinePartnerRequest]);
 
   // Add persistence for auth state
   useEffect(() => {
@@ -1261,76 +1328,9 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('offline', handleOnlineStatus);
       cleanupDatabaseListeners();
     };
-  }, []);
+  }, [auth, setupDatabaseListeners, cleanupDatabaseListeners]);
 
-  // Initialize user data after sign up or sign in
-  const initializeUserData = async (user) => {
-    if (!user) return;
-    
-    try {
-      // Check if the user already has a partner before clearing anything
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-      const hasPartner = userDocSnap.exists() && userDocSnap.data().partnerId;
-
-      // Only clear connections/notifications for users WITHOUT an active partner
-      // This prevents destroying established partnerships on every sign-in
-      if (!hasPartner) {
-        const notificationsRef = ref(rtdb, `notifications/${user.uid}`);
-        await set(notificationsRef, null);
-
-        const connectionsRef = ref(rtdb, `connections/${user.uid}`);
-        await set(connectionsRef, null);
-        
-        setPartner(null);
-      }
-      
-      setDisconnectMessage(null);
-
-      // Initialize user settings with defaults
-      const userSettingsRef = ref(rtdb, `userSettings/${user.uid}`);
-      const defaultSettings = {
-        notifications: {
-          chatMessages: true,
-          topicResponses: true,
-          systemNotifications: true
-        },
-        theme: {
-          preference: 'light',
-          updatedAt: serverTimestamp()
-        },
-        privacy: {
-          showProfile: true,
-          anonymousNotes: false
-        },
-        profile: {
-          displayName: user.displayName || '',
-          email: user.email || '',
-          updatedAt: serverTimestamp()
-        }
-      };
-
-      // Only set if not exists
-      const snapshot = await get(userSettingsRef);
-      if (!snapshot.exists()) {
-        await set(userSettingsRef, defaultSettings);
-      } else {
-        // Update any missing sections while preserving existing settings
-        const currentSettings = snapshot.val();
-        const updatedSettings = {
-          notifications: { ...defaultSettings.notifications, ...currentSettings?.notifications },
-          theme: { ...defaultSettings.theme, ...currentSettings?.theme },
-          privacy: { ...defaultSettings.privacy, ...currentSettings?.privacy },
-          profile: { ...defaultSettings.profile, ...currentSettings?.profile }
-        };
-        await update(userSettingsRef, updatedSettings);
-      }
-    } catch (error) {
-      console.error('Error initializing user data:', error);
-    }
-  };
-
-  const signIn = async (email, password) => {
+  const signIn = React.useCallback(async (email, password) => {
     try {
       setError(null);
       setIsLoading(true);
@@ -1383,9 +1383,9 @@ export const AuthProvider = ({ children }) => {
       handleAuthError(err);
       throw err;
     }
-  };
+  }, [auth, initializeUserData, handleAuthError]);
 
-  const signUp = async (email, password, displayName) => {
+  const signUp = React.useCallback(async (email, password, displayName) => {
     try {
       setError(null);
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -1401,9 +1401,9 @@ export const AuthProvider = ({ children }) => {
       handleAuthError(err);
       throw err;
     }
-  };
+  }, [auth, initializeUserData, handleAuthError]);
 
-  const logout = async () => {
+  const logout = React.useCallback(async () => {
     try {
       if (!isOnline) {
         throw new Error('You are currently offline. Please check your internet connection.');
@@ -1415,9 +1415,9 @@ export const AuthProvider = ({ children }) => {
       setError(err.message);
       throw err;
     }
-  };
+  }, [auth, isOnline]);
 
-  const connectPartner = async (inviteCode) => {
+  const connectPartner = React.useCallback(async (inviteCode) => {
     try {
       if (!isOnline) {
         throw new Error('You are currently offline. Please check your internet connection.');
@@ -1587,9 +1587,9 @@ export const AuthProvider = ({ children }) => {
       setError(err.message);
       throw err;
     }
-  };
+  }, [user, partner, isOnline, setupDatabaseListeners]);
 
-  const generateInviteCode = async () => {
+  const generateInviteCode = React.useCallback(async () => {
     try {
       if (!isOnline) {
         throw new Error('You are currently offline. Please check your internet connection.');
@@ -1704,9 +1704,9 @@ export const AuthProvider = ({ children }) => {
       setError(err.message || 'Failed to generate invite code');
       throw err;
     }
-  };
+  }, [user, partner, isOnline]);
 
-  const disconnectPartner = async () => {
+  const disconnectPartner = React.useCallback(async () => {
     try {
       if (!user) {
         throw new Error('You must be logged in to disconnect.');
@@ -1787,13 +1787,13 @@ export const AuthProvider = ({ children }) => {
       setError(err.message);
       throw err;
     }
-  };
+  }, [user, partner, cleanupDatabaseListeners]);
 
-  const clearDisconnectMessage = () => {
+  const clearDisconnectMessage = React.useCallback(() => {
     setDisconnectMessage(null);
-  };
+  }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = React.useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -1881,9 +1881,9 @@ export const AuthProvider = ({ children }) => {
       setError(errorMessage);
       throw error;
     }
-  };
+  }, [auth, initializeUserData]);
 
-  const resetPassword = async (email) => {
+  const resetPassword = React.useCallback(async (email) => {
     try {
       await sendPasswordResetEmail(auth, email);
       setError(null);
@@ -1891,7 +1891,7 @@ export const AuthProvider = ({ children }) => {
       setError(error.message);
       throw error;
     }
-  };
+  }, [auth]);
 
   const value = {
     user,
