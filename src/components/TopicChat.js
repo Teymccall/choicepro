@@ -12,6 +12,7 @@ import {
   TrashIcon,
   PencilIcon,
   MicrophoneIcon,
+  EllipsisVerticalIcon,
   ArrowLeftIcon,
   PhoneIcon,
   VideoCameraIcon,
@@ -23,6 +24,7 @@ import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'f
 import { rtdb } from '../firebase/config';
 import { uploadMedia, validateFile } from '../utils/mediaUpload';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { toast } from 'react-hot-toast';
 import ProfilePicture from './ProfilePicture';
 import ImageViewer from './ImageViewer';
 import Message from './Message';
@@ -50,6 +52,8 @@ const TopicChat = ({ topic, onClose }) => {
     return savedDraft || '';
   });
   const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -103,6 +107,9 @@ const TopicChat = ({ topic, onClose }) => {
     return !(topic?.isDirectChat || isDirectChatRoute || hasTopicChatOpen);
   });
   const [partnerData, setPartnerData] = useState(partner);
+  const [messageCount, setMessageCount] = useState(0);
+  const [relationshipLevel, setRelationshipLevel] = useState({ level: 'Acquaintance', color: 'text-gray-600 dark:text-gray-400' });
+  const [nextLevelProgress, setNextLevelProgress] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const topicInputRef = useRef(null);
   const messagesContainerRef = useRef(null);

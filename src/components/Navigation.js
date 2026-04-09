@@ -31,6 +31,7 @@ const Navigation = () => {
   const [notifications, setNotifications] = useState([]);
   const [newTopics, setNewTopics] = useState(0);
   const [newDecisions, setNewDecisions] = useState(0);
+  const [hasUnreadItems, setHasUnreadItems] = useState(false);
 
   // Close notifications when clicking outside
   useEffect(() => {
