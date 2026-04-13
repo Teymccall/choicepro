@@ -192,35 +192,48 @@ const TopicChat = ({ topic, onClose }) => {
     };
   }, [topic?.id, user?.uid]);
 
-  // Handle Visual Viewport for mobile keyboards - Crucial for professional layout
+  // iOS PWA Keyboard Fix — track visualViewport size/offset to pin the chat UI
+  // to the exact visible area so the input bar always sits directly above the keyboard.
+  const [viewportStyle, setViewportStyle] = useState({});
+
   useEffect(() => {
     // Lock body scroll to prevent elastic bounce on iOS and background scrolling
-    const originalStyle = window.getComputedStyle(document.body).overflow;
     document.body.style.overflow = 'hidden';
     document.body.style.overscrollBehavior = 'none';
-    
+
     if (!window.visualViewport) return;
 
     const handleResize = () => {
-      const vh = window.visualViewport.height;
+      const vv = window.visualViewport;
+      const vh = vv.height;
+      const offsetTop = vv.offsetTop;
+
       setVisualViewportHeight(vh);
-      
-      // Heuristic: if viewport height drops significantly, keyboard is likely open
+
+      // Heuristic: keyboard is open when visible area is significantly smaller
       const isShort = vh < window.innerHeight * 0.85;
       setIsKeyboardOpen(isShort);
-      
+
+      // *** THE KEY FIX ***
+      // Instead of leaving the container at 100dvh (which ignores the keyboard),
+      // we set its exact height = visualViewport.height and shift it down by offsetTop
+      // so it always occupies ONLY the visible area above the keyboard.
+      setViewportStyle({
+        height: `${vh}px`,
+        top: `${offsetTop}px`,
+      });
+
       if (isShort) {
-        // Force scroll to bottom when keyboard opens to keep conversation context
-        setTimeout(() => scrollToBottom(true, false), 100);
+        setTimeout(() => scrollToBottom(true, false), 120);
       }
     };
 
     window.visualViewport.addEventListener('resize', handleResize);
     window.visualViewport.addEventListener('scroll', handleResize);
-    handleResize();
+    handleResize(); // run immediately
 
     return () => {
-      document.body.style.overflow = originalStyle;
+      document.body.style.overflow = '';
       document.body.style.overscrollBehavior = '';
       window.visualViewport.removeEventListener('resize', handleResize);
       window.visualViewport.removeEventListener('scroll', handleResize);
@@ -1714,10 +1727,15 @@ const TopicChat = ({ topic, onClose }) => {
   return (
     <div 
       ref={chatContainerRef}
-      className="fixed inset-0 z-[60] flex flex-col w-full h-[100dvh] overflow-hidden bg-white dark:bg-gray-900 shadow-2xl"
+      className="fixed left-0 right-0 z-[60] flex flex-col w-full overflow-hidden bg-white dark:bg-gray-900 shadow-2xl"
       style={{ 
+        // viewportStyle dynamically sets height + top to match the visible area
+        // above the iOS keyboard. Without this, there's a big gap between input & keyboard.
+        top: viewportStyle.top ?? 0,
+        height: viewportStyle.height ?? '100dvh',
         touchAction: 'none',
-        overscrollBehavior: 'none'
+        overscrollBehavior: 'none',
+        transition: 'height 0.05s ease-out, top 0.05s ease-out',
       }}
     >
       {/* Header - Professional WhatsApp Style */}
