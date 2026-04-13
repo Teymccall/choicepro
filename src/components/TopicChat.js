@@ -20,8 +20,10 @@ import {
   PauseIcon,
   ClockIcon,
   PlusIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  PaperClipIcon
 } from '@heroicons/react/24/outline';
+import { PaperAirplaneIcon as PaperAirplaneSolid, MicrophoneIcon as MicrophoneSolid } from '@heroicons/react/24/solid';
 import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { uploadMedia, validateFile } from '../utils/mediaUpload';
@@ -1915,22 +1917,26 @@ const TopicChat = ({ topic, onClose }) => {
             </div>
           )}
 
-          {/* Main Input Bar */}
+          {/* Main Input Bar - WhatsApp Style */}
           <div 
-            className={`flex items-end gap-2 p-1.5 bg-white dark:bg-gray-800 rounded-3xl transition-all duration-300 ring-1 ring-black/[0.02] ${isInputFocused ? 'shadow-[0_0_20px_rgba(59,130,246,0.15)] border-blue-500/30 ring-2 ring-blue-500/20' : 'shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1),0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100 dark:border-gray-700/50'}`}
+            className="flex items-end px-1 gap-[6px] transition-all duration-300 bg-transparent w-full box-border"
             style={{
-              paddingBottom: 'max(env(safe-area-inset-bottom), 6px)',
-              marginBottom: '6px'
+              paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',
+              marginBottom: '4px'
             }}
           >
-            <button
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-2.5 sm:p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-full transition-all text-gray-500 dark:text-gray-400 shrink-0"
-            >
-              <FaceSmileIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-            </button>
+            {/* WhatsApp-Style Input Pill */}
+            <div className="flex-1 bg-white dark:bg-gray-800 rounded-3xl flex items-end shadow-sm border border-gray-200 dark:border-gray-700 min-h-[42px] min-w-0">
+              
+              {/* Emoji Button */}
+              <button
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="p-2 sm:p-2.5 text-gray-500 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300 transition-colors shrink-0 mb-[1px]"
+              >
+                <FaceSmileIcon className="h-[22px] w-[22px] sm:h-6 sm:w-6" />
+              </button>
 
-            <div className="flex-1 bg-gray-50/50 dark:bg-gray-900/50 rounded-2xl px-3 py-2 min-h-[44px] flex items-center transition-colors focus-within:bg-white dark:focus-within:bg-gray-900 border border-transparent focus-within:border-blue-500/20">
+              {/* Textarea */}
               <textarea
                 ref={inputRef}
                 value={newMessage}
@@ -1948,48 +1954,53 @@ const TopicChat = ({ topic, onClose }) => {
                 onBlur={() => setIsInputFocused(false)}
                 onKeyDown={handleKeyDown}
                 onInput={handleTyping}
-                placeholder="Message..."
-                className="flex-1 bg-transparent border-none outline-none focus:ring-0 resize-none max-h-32 text-[16px] leading-relaxed text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 py-1"
+                placeholder="Message"
+                className="flex-1 min-w-0 bg-transparent border-none outline-none focus:ring-0 resize-none max-h-32 text-[16px] leading-[20px] text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 py-[10px] px-0 m-0 self-center"
                 rows="1"
               />
+
+              {/* Inner Pill Actions (Attachment & Camera) */}
+              <div className="flex items-center shrink-0 pr-1 pb-[1px] self-end">
+                <button
+                  onClick={() => setShowMediaMenu(!showMediaMenu)}
+                  className="p-2 text-gray-500 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300 transition-all"
+                >
+                  <PaperClipIcon className="h-[22px] w-[22px] sm:h-6 sm:w-6 transform -rotate-45 -mt-0.5" />
+                </button>
+                
+                {/* Camera icon disappears when typing */}
+                {(!newMessage.trim()) && (
+                  <button
+                    onClick={() => handleCameraClick()}
+                    className="p-2 pl-1 pr-3 text-gray-500 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300 transition-colors"
+                  >
+                    <CameraIcon className="h-[22px] w-[22px] sm:h-6 sm:w-6" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-1 sm:gap-2 px-1 shrink-0 overflow-hidden transition-all duration-300">
-              {isInputFocused && !newMessage.trim() && !selectedFile && !recordedAudio ? (
+            {/* External Circular Action Button (Mic / Send) */}
+            <div className="shrink-0 self-end">
+              {newMessage.trim() || selectedFile || recordedAudio ? (
                 <button
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // prevent input blur
-                    setIsInputFocused(false);
-                  }}
-                  className="p-2 sm:p-2.5 rounded-full transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <ChevronRightIcon className="h-5 w-5" />
-                </button>
-              ) : !newMessage.trim() && !selectedFile && !recordedAudio ? (
-                <>
-                  <button
-                    onClick={() => setShowMediaMenu(!showMediaMenu)}
-                    className="p-2.5 sm:p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-full transition-all text-gray-500 dark:text-gray-400"
-                  >
-                    <PlusIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-                  </button>
-                  <button
-                    onClick={isRecording ? () => stopRecording({ autoSend: true }) : startRecording}
-                    className={`p-2.5 sm:p-3 rounded-full shadow-lg transition-all hover:scale-110 active:scale-95 ${
-                      isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white'
-                    }`}
-                  >
-                    <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6" />
-                  </button>
-                </>
-              ) : (
-                <button
-                  onMouseDown={(e) => e.preventDefault()} // prevent blur when clicking send
+                  onMouseDown={(e) => e.preventDefault()} // prevent blur
                   onClick={handleSendMessage}
                   disabled={isLoading}
-                  className="p-2.5 sm:p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-full shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 transition-all group hover:scale-110 active:scale-95 disabled:opacity-50"
+                  className="bg-[#00a884] text-white rounded-full shadow-md hover:bg-[#008f6f] transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 flex items-center justify-center w-[46px] h-[46px] shrink-0"
                 >
-                  <PaperAirplaneIcon className="h-5 w-5 sm:h-6 sm:w-6 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  <PaperAirplaneSolid className="h-5 w-5 ml-[-2px]" />
+                </button>
+              ) : (
+                <button
+                  onClick={isRecording ? () => stopRecording({ autoSend: true }) : startRecording}
+                  className={`rounded-full shadow-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center w-[46px] h-[46px] shrink-0 ${
+                    isRecording 
+                      ? 'bg-red-500 text-white animate-pulse' 
+                      : 'bg-[#00a884] text-white hover:bg-[#008f6f]'
+                  }`}
+                >
+                  <MicrophoneSolid className="h-[22px] w-[22px]" />
                 </button>
               )}
             </div>
