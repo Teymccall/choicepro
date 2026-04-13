@@ -173,8 +173,8 @@ const Layout = ({ children }) => {
           isSpeakerOn={webRTC.isSpeakerOn}
           callDuration={webRTC.callDuration}
           connectionQuality={webRTC.connectionQuality}
-          partnerName={partner?.displayName || 'Partner'}
-          partnerPhotoURL={partner?.photoURL || ''}
+          partnerName={webRTC.activeCallPartnerData?.name || partner?.displayName || 'Unknown caller'}
+          partnerPhotoURL={webRTC.activeCallPartnerData?.photoURL || partner?.photoURL || ''}
           onEndCall={webRTC.endCall}
           onToggleAudio={webRTC.toggleAudio}
           onToggleVideo={webRTC.toggleVideo}

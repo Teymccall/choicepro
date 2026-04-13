@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { XMarkIcon, ArrowDownTrayIcon, ClockIcon } from '@heroicons/react/24/outline';
 
-const ImageViewer = ({ image, onClose, disappearingTimer, viewedAt }) => {
+const ImageViewer = ({ image, onClose, disappearingTimer, viewedAt, onImageLoad }) => {
   const [timeLeft, setTimeLeft] = useState(null);
 
   // If this is a disappearing image, track the countdown and auto-close when it expires
@@ -119,6 +119,7 @@ const ImageViewer = ({ image, onClose, disappearingTimer, viewedAt }) => {
         decoding="sync"
         onLoad={(e) => {
           e.target.style.opacity = 1;
+          if (onImageLoad) onImageLoad(); // Only start the timer back-end sync once fully painted!
         }}
         style={{ opacity: 0, transition: 'opacity 0.2s ease-in-out' }}
         // Prevent right-click save on disappearing images

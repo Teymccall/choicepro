@@ -240,32 +240,20 @@ const DisappearingMediaRenderer = ({ message, topicId, onImageClick, isOwnMessag
   // ── RECEIVER SIDE ─────────────────────────────────────────────────────────
   const handleView = async (e) => {
     e.stopPropagation();
-    if (!isViewed) {
-      try {
-        const now = Date.now();
-        await update(ref(rtdb, `topicChats/${topicId}/${message.id}/media`), {
-          viewedAt: now
-        });
-        setIsViewed(true);
-        // Open image immediately after marking as viewed, passing metadata for auto-close
-        onImageClick({
-          url: message.media.url,
-          disappearingTimer: message.media.disappearingTimer,
-          viewedAt: now
-        });
-      } catch (error) {
-        console.error('Error marking disappearing message as viewed:', error);
-      }
-    } else {
-      // Already viewed — open full screen with countdown metadata
-      onImageClick({
-        url: message.media.url,
-        disappearingTimer: message.media.disappearingTimer,
-        viewedAt: typeof message.media.viewedAt === 'number'
+    // Open image directly. 
+    // If it hasn't been viewed yet, TopicChat will listen for the onImageLoad
+    // callback from ImageViewer and mark it as viewedAt in the database only AFTER
+    // the image has successfully downloaded and rendered, preserving the user's timer!
+    onImageClick({
+      messageId: message.id, // crucially passing messageId back up
+      url: message.media.url,
+      disappearingTimer: message.media.disappearingTimer,
+      viewedAt: message.media.viewedAt ? (
+        typeof message.media.viewedAt === 'number'
           ? message.media.viewedAt
           : new Date(message.media.viewedAt).getTime()
-      });
-    }
+      ) : null
+    });
   };
 
   return (

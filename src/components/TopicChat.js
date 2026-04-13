@@ -1712,17 +1712,10 @@ const TopicChat = ({ topic, onClose }) => {
   return (
     <div 
       ref={chatContainerRef}
-      className="flex flex-col w-full relative overflow-hidden bg-white dark:bg-gray-900 shadow-2xl transition-all duration-300"
+      className="fixed inset-0 z-[60] flex flex-col w-full h-[100dvh] overflow-hidden bg-white dark:bg-gray-900 shadow-2xl"
       style={{ 
-        height: `${visualViewportHeight}px`,
-        maxHeight: '100dvh',
         touchAction: 'none',
-        overscrollBehavior: 'none',
-        position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
-        top: 0
+        overscrollBehavior: 'none'
       }}
     >
       {/* Header - Professional WhatsApp Style */}
@@ -1926,7 +1919,8 @@ const TopicChat = ({ topic, onClose }) => {
           <div 
             className={`flex items-end gap-2 p-1.5 bg-white dark:bg-gray-800 rounded-3xl transition-all duration-300 ring-1 ring-black/[0.02] ${isInputFocused ? 'shadow-[0_0_20px_rgba(59,130,246,0.15)] border-blue-500/30 ring-2 ring-blue-500/20' : 'shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1),0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100 dark:border-gray-700/50'}`}
             style={{
-              marginBottom: isKeyboardOpen ? '4px' : 'max(env(safe-area-inset-bottom), 12px)'
+              paddingBottom: 'max(env(safe-area-inset-bottom), 6px)',
+              marginBottom: '6px'
             }}
           >
             <button
@@ -1955,7 +1949,7 @@ const TopicChat = ({ topic, onClose }) => {
                 onKeyDown={handleKeyDown}
                 onInput={handleTyping}
                 placeholder="Message..."
-                className="flex-1 bg-transparent border-none outline-none focus:ring-0 resize-none max-h-32 text-sm sm:text-base leading-relaxed text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 py-1"
+                className="flex-1 bg-transparent border-none outline-none focus:ring-0 resize-none max-h-32 text-[16px] leading-relaxed text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 py-1"
                 rows="1"
               />
             </div>
@@ -2092,6 +2086,22 @@ const TopicChat = ({ topic, onClose }) => {
           image={typeof viewingImage === 'string' ? viewingImage : viewingImage.url} 
           disappearingTimer={typeof viewingImage === 'object' ? viewingImage.disappearingTimer : null}
           viewedAt={typeof viewingImage === 'object' ? viewingImage.viewedAt : null}
+          onImageLoad={async () => {
+            // First time load for a disappearing message: start the countdown ONLY NOW!
+            // This fixes slow connections burning the user's timer.
+            if (typeof viewingImage === 'object' && viewingImage.messageId && !viewingImage.viewedAt) {
+              const now = Date.now();
+              try {
+                await update(ref(rtdb, `topicChats/${topic.id}/${viewingImage.messageId}/media`), {
+                  viewedAt: now
+                });
+                // Update local viewingImage state so ImageViewer receives the viewedAt prop and starts the countdown!
+                setViewingImage(prev => prev ? { ...prev, viewedAt: now } : null);
+              } catch (err) {
+                console.error('Failed to mark image viewed on load:', err);
+              }
+            }
+          }}
           onClose={() => setViewingImage(null)} 
         />
       )}

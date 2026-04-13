@@ -17,6 +17,7 @@ export const useWebRTC = (user, partner) => {
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [pendingCallType, setPendingCallType] = useState(null);
   const [incomingCall, setIncomingCall] = useState(null); // { callId, data }
+  const [activeCallPartnerData, setActiveCallPartnerData] = useState({ name: null, photoURL: null });
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -276,6 +277,7 @@ export const useWebRTC = (user, partner) => {
     setPendingCallType(null);
 
     try {
+      setActiveCallPartnerData({ name: partner.displayName, photoURL: partner.photoURL });
       setCallType(type);
       setCallStatus('calling');
       
@@ -315,6 +317,17 @@ export const useWebRTC = (user, partner) => {
       
       setCurrentCallId(callId);
 
+      // Listen for ICE candidates FIRST
+      connection.peerConnection.onicecandidate = (event) => {
+        if (event.candidate) {
+          const candidatesRef = ref(rtdb, `calls/${callId}/callerCandidates`);
+          push(candidatesRef, event.candidate.toJSON());
+        }
+      };
+
+      // Create offer
+      const offer = await connection.createOffer();
+
       await set(newCallRef, {
         caller: user.uid,
         callerName: user.displayName,
@@ -323,6 +336,7 @@ export const useWebRTC = (user, partner) => {
         recipientName: partner.displayName,
         type,
         status: 'ringing',
+        offer,
         createdAt: Date.now()
       });
 
@@ -377,17 +391,7 @@ export const useWebRTC = (user, partner) => {
         console.error('Error triggering push API:', pushErr);
       }
 
-      // Create offer
-      const offer = await connection.createOffer();
-      await update(newCallRef, { offer });
-
-      // Listen for ICE candidates
-      connection.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          const candidatesRef = ref(rtdb, `calls/${callId}/callerCandidates`);
-          push(candidatesRef, event.candidate.toJSON());
-        }
-      };
+      // ICE candidates listener has been moved to run before createOffer
 
       // Listen for answer and call status changes
       const callRef = ref(rtdb, `calls/${callId}`);
@@ -421,10 +425,7 @@ export const useWebRTC = (user, partner) => {
           setConnectionQuality('good');
           hasShownConnectedToastRef.current = false;
           
-          if (!hasShownEndToastRef.current) {
-            hasShownEndToastRef.current = true;
-            toast('Call ended');
-          }
+          // Call ended silently - no toast notification
           return;
         }
         
@@ -530,9 +531,25 @@ export const useWebRTC = (user, partner) => {
       setCallType(callData.type);
       // Don't set to 'active' yet - wait until media is ready
 
+      // Don't set to 'active' yet - wait until media is ready
+
       // Reset refs for new call
       hasShownConnectedToastRef.current = false;
       hasShownEndToastRef.current = false;
+
+      // Safeguard: Fetch fresh call data if offer is missing from the initial ringing snapshot
+      let freshCallData = callData;
+      if (!freshCallData.offer) {
+        console.log('⚠️ AnswerCall: Missing offer in snapshot, fetching fresh data from RTDB...');
+        const callSnapshot = await get(ref(rtdb, `calls/${callId}`));
+        if (callSnapshot.exists()) {
+          freshCallData = callSnapshot.val();
+        }
+      }
+
+      if (!freshCallData.offer) {
+        throw new Error('Call offer is missing. The caller might have disconnected.');
+      }
 
       // Initialize media FIRST
       console.log('📱 Step 1: Initializing WebRTC connection...');
@@ -556,8 +573,10 @@ export const useWebRTC = (user, partner) => {
         }))
       });
       
+      setActiveCallPartnerData({ name: freshCallData.callerName, photoURL: freshCallData.callerPhotoURL });
+      
       // Ensure video state is properly set based on call type
-      if (callData.type === 'video') {
+      if (freshCallData.type === 'video') {
         console.log('🎥 Step 3: Answering video call - ensuring video is enabled');
         setIsVideoEnabled(true);
         // Make sure video tracks are enabled
@@ -572,7 +591,7 @@ export const useWebRTC = (user, partner) => {
 
       console.log('📡 Step 4: Setting remote offer...');
       // Set remote offer first
-      await connection.setRemoteOffer(callData.offer);
+      await connection.setRemoteOffer(freshCallData.offer);
       console.log('✅ Step 4 Complete: Remote offer set successfully');
       
       // Process queued caller ICE candidates after offer is set
@@ -676,10 +695,7 @@ export const useWebRTC = (user, partner) => {
           setConnectionQuality('good');
           hasShownConnectedToastRef.current = false;
           
-          if (!hasShownEndToastRef.current) {
-            hasShownEndToastRef.current = true;
-            toast('Call ended');
-          }
+          // Call ended silently - no toast notification
         }
       });
 
@@ -858,8 +874,9 @@ export const useWebRTC = (user, partner) => {
       callerCandidatesQueueRef.current = [];
       recipientCandidatesQueueRef.current = [];
       hasShownConnectedToastRef.current = false; // Reset for next call
+      setActiveCallPartnerData({ name: null, photoURL: null });
 
-      toast('Call ended');
+      // Call ended silently - no toast
     } catch (error) {
       console.error('Error ending call:', error);
     } finally {
@@ -988,6 +1005,7 @@ export const useWebRTC = (user, partner) => {
     callDuration,
     connectionQuality,
     incomingCall,
+    activeCallPartnerData,
     localVideoRef,
     remoteVideoRef,
     showPermissionPrompt,
