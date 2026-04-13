@@ -50,25 +50,28 @@ const NotificationHandler = () => {
         }
 
         // Step 5: Set up message listener for foreground messages
-        onMessageListener()
-          .then(payload => {
-            console.log('Received foreground message:', payload);
-            // Show notification even when app is in foreground
-            if (Notification.permission === 'granted') {
-              new Notification(payload.notification?.title || 'New Message', {
-                body: payload.notification?.body || '',
-                icon: '/choice.png',
-                badge: '/choice.png',
-                tag: payload.data?.type || 'default',
-                data: payload.data
-              });
-            }
-          })
-          .catch(err => console.error('Error setting up message listener:', err));
+        const unsubscribe = onMessageListener((payload) => {
+          console.log('FCM Forward Message Received:', payload);
+          // Show browser notification if permission is granted
+          if (Notification.permission === 'granted') {
+            new Notification(payload.notification?.title || 'New Message', {
+              body: payload.notification?.body || '',
+              icon: '/choice.png',
+              badge: '/choice.png',
+              tag: payload.data?.type || 'default',
+              data: payload.data
+            });
+          }
+        });
 
         // Step 6: Mark setup as complete
         setIsSetup(true);
         console.log('Notification setup completed successfully');
+
+        // Cleanup listener on unmount
+        return () => {
+          if (unsubscribe) unsubscribe();
+        };
 
       } catch (error) {
         console.error('Error in notification setup:', error);

@@ -1341,10 +1341,6 @@ export const AuthProvider = ({ children }) => {
 
       // Trim the email to remove any accidental spaces
       const trimmedEmail = email.trim();
-      
-      // Set persistence first
-      await setPersistence(auth, browserLocalPersistence);
-      
       // Attempt to sign in
       const userCredential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
       const user = userCredential.user;
@@ -1807,9 +1803,6 @@ export const AuthProvider = ({ children }) => {
       googleProvider.setCustomParameters({
         prompt: 'select_account'
       });
-
-      // Set persistence concurrently without awaiting to avoid browser popup blockers
-      setPersistence(auth, browserLocalPersistence).catch(e => console.warn('Persistence set error:', e));
 
       // Use signInWithPopup directly after user click
       const result = await signInWithPopup(auth, googleProvider);

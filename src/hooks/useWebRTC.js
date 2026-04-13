@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ref, onValue, set, push, remove, update, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, onValue, set, push, remove, update, query, orderByChild, equalTo, get } from 'firebase/database';
 import { rtdb } from '../firebase/config';
 import { WebRTCConnection } from '../utils/webRTC';
 import { toast } from 'react-hot-toast';
@@ -34,6 +34,7 @@ export const useWebRTC = (user, partner) => {
   const callInitializingRef = useRef(false);
   const lastCallIdRef = useRef(null);
   const hasShownConnectedToastRef = useRef(false);
+  const hasShownEndToastRef = useRef(false);
 
   // Initialize WebRTC connection (attemptReconnection defined later)
   const initializeConnection = useCallback(() => {
@@ -219,7 +220,7 @@ export const useWebRTC = (user, partner) => {
       snapshot.forEach((childSnapshot) => {
         if (foundCall) return true; // break iteration
         const data = childSnapshot.val();
-        if (data && data.status === 'ringing' && data.recipient === user.uid) {
+        if (data && data.status === 'ringing' && data.recipient === user?.uid) {
           foundCall = {
             callId: childSnapshot.key,
             data,
@@ -280,6 +281,7 @@ export const useWebRTC = (user, partner) => {
       
       // Reset toast ref for new call
       hasShownConnectedToastRef.current = false;
+      hasShownEndToastRef.current = false;
 
       // Initialize media
       const connection = initializeConnection();
@@ -338,6 +340,43 @@ export const useWebRTC = (user, partner) => {
         read: false
       });
 
+      // Send background push via Vercel Serverless API to wake up closed app
+      try {
+        const tokensRef = ref(rtdb, `users/${partner.uid}/fcmTokens`);
+        const snapshot = await get(tokensRef);
+        if (snapshot.exists()) {
+          const tokens = snapshot.val();
+          const tokenList = Object.values(tokens).map(t => typeof t === 'string' ? t : t.token);
+          
+          if (tokenList.length > 0) {
+             const payload = {
+                title: 'Incoming Call',
+                body: `${type === 'video' ? '📹' : '📞'} ${user.displayName} is calling you...`,
+                data: {
+                  type: 'incoming_call',
+                  callId: callId,
+                  callType: type,
+                  channelName: 'calls'
+                }
+             };
+             
+             // Ping our secure Vercel API
+             await Promise.all(tokenList.map(token => 
+               fetch('/api/send-push', {
+                 method: 'POST',
+                 headers: {
+                   'Content-Type': 'application/json'
+                 },
+                 body: JSON.stringify({ ...payload, token })
+               }).catch(err => console.error("Failed to push to API", err))
+             ));
+             console.log("Successfully pinged /api/send-push for", tokenList.length, "tokens");
+          }
+        }
+      } catch (pushErr) {
+        console.error('Error triggering push API:', pushErr);
+      }
+
       // Create offer
       const offer = await connection.createOffer();
       await update(newCallRef, { offer });
@@ -381,7 +420,11 @@ export const useWebRTC = (user, partner) => {
           setIsVideoEnabled(true);
           setConnectionQuality('good');
           hasShownConnectedToastRef.current = false;
-          toast('Call ended');
+          
+          if (!hasShownEndToastRef.current) {
+            hasShownEndToastRef.current = true;
+            toast('Call ended');
+          }
           return;
         }
         
@@ -486,6 +529,10 @@ export const useWebRTC = (user, partner) => {
       setCurrentCallId(callId);
       setCallType(callData.type);
       // Don't set to 'active' yet - wait until media is ready
+
+      // Reset refs for new call
+      hasShownConnectedToastRef.current = false;
+      hasShownEndToastRef.current = false;
 
       // Initialize media FIRST
       console.log('📱 Step 1: Initializing WebRTC connection...');
@@ -628,7 +675,11 @@ export const useWebRTC = (user, partner) => {
           setIsVideoEnabled(true);
           setConnectionQuality('good');
           hasShownConnectedToastRef.current = false;
-          toast('Call ended');
+          
+          if (!hasShownEndToastRef.current) {
+            hasShownEndToastRef.current = true;
+            toast('Call ended');
+          }
         }
       });
 

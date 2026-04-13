@@ -18,7 +18,9 @@ import {
   VideoCameraIcon,
   PlayIcon,
   PauseIcon,
-  ClockIcon
+  ClockIcon,
+  PlusIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline';
 import { ref, onValue, push, update, serverTimestamp, remove, get, set } from 'firebase/database';
 import { rtdb } from '../firebase/config';
@@ -58,6 +60,26 @@ const TopicChat = ({ topic, onClose }) => {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+
+  // Helper function to format last seen date
+  const formatLastSeen = (timestamp) => {
+    if (!timestamp) return 'Offline';
+    const date = typeof timestamp === 'number' ? new Date(timestamp) : timestamp.toDate?.() || new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (days === 0) {
+      return `today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (days === 1) {
+      return `yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (days < 7) {
+      const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      return `${weekdays[date.getDay()]} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
   const [replyingTo, setReplyingTo] = useState(null);
   const [viewingImage, setViewingImage] = useState(null);
   const [showMediaMenu, setShowMediaMenu] = useState(false);
@@ -116,7 +138,20 @@ const TopicChat = ({ topic, onClose }) => {
   const emojiPickerRef = useRef(null);
   const optionsMenuRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
+  const [viewportHeight, setViewportHeight] = useState('100%');
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [visualViewportHeight, setVisualViewportHeight] = useState(window.innerHeight);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const compositeRef = useRef(null); // Ref for the whole component container
   
+  const triggerHaptic = (style = 'medium') => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      if (style === 'light') navigator.vibrate(5);
+      else if (style === 'medium') navigator.vibrate(15);
+      else if (style === 'heavy') navigator.vibrate([20, 10, 20]);
+    }
+  };
+
   // WebRTC context for call buttons (UI is in Layout)
   const webRTC = useWebRTCContext();
 
@@ -155,11 +190,50 @@ const TopicChat = ({ topic, onClose }) => {
     };
   }, [topic?.id, user?.uid]);
 
+  // Handle Visual Viewport for mobile keyboards - Crucial for professional layout
+  useEffect(() => {
+    // Lock body scroll to prevent elastic bounce on iOS and background scrolling
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    
+    if (!window.visualViewport) return;
+
+    const handleResize = () => {
+      const vh = window.visualViewport.height;
+      setVisualViewportHeight(vh);
+      
+      // Heuristic: if viewport height drops significantly, keyboard is likely open
+      const isShort = vh < window.innerHeight * 0.85;
+      setIsKeyboardOpen(isShort);
+      
+      if (isShort) {
+        // Force scroll to bottom when keyboard opens to keep conversation context
+        setTimeout(() => scrollToBottom(true, false), 100);
+      }
+    };
+
+    window.visualViewport.addEventListener('resize', handleResize);
+    window.visualViewport.addEventListener('scroll', handleResize);
+    handleResize();
+
+    return () => {
+      document.body.style.overflow = originalStyle;
+      document.body.style.overscrollBehavior = '';
+      window.visualViewport.removeEventListener('resize', handleResize);
+      window.visualViewport.removeEventListener('scroll', handleResize);
+    };
+  }, []);
+
   useEffect(() => {
     const updateNavSpace = () => {
       const isDirectChatRoute = window.location.pathname === '/chat';
       const hasTopicChatOpen = Boolean(sessionStorage.getItem('openTopicChatId'));
-      const shouldReserve = !(topic?.isDirectChat || isDirectChatRoute || hasTopicChatOpen);
+      
+      // If we are in the dedicated /chat route, we NEVER show floating nav
+      const isDedicatedRoute = isDirectChatRoute || topic?.isDirectChat;
+      
+      const shouldReserve = !(isDedicatedRoute || hasTopicChatOpen);
       setShouldReserveSpaceForNav(shouldReserve);
     };
 
@@ -1625,137 +1699,111 @@ const TopicChat = ({ topic, onClose }) => {
   const previewProgress = previewDuration > 0 ? Math.min(1, previewCurrentTime / previewDuration) : 0;
 
   if (loading) {
-    return <div className="text-center py-4">Loading messages...</div>;
+    return (
+      <div className="flex items-center justify-center h-full bg-white dark:bg-gray-900">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Loading messages...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div
+    <div 
       ref={chatContainerRef}
-      className="flex flex-col h-full w-full bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-black overflow-hidden"
+      className="flex flex-col w-full relative overflow-hidden bg-white dark:bg-gray-900 shadow-2xl transition-all duration-300"
+      style={{ 
+        height: `${visualViewportHeight}px`,
+        maxHeight: '100dvh',
+        touchAction: 'none',
+        overscrollBehavior: 'none',
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        top: 0
+      }}
     >
-      {/* Chat Header - Fixed at top, won't scroll away */}
-      <div 
-        className="shrink-0 sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-700/50 shadow-lg z-50"
-        style={{
-          paddingTop: 'max(env(safe-area-inset-top), 0px)'
-        }}
-      >
-        {/* Top Row - Partner Info */}
-        <div className="flex items-center px-3 sm:px-4 py-2 sm:py-3 gap-2 sm:gap-3">
-          <button
-            onClick={onClose}
-            className="md:hidden p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
-          >
-            <ArrowLeftIcon className="h-5 w-5 text-gray-700 dark:text-gray-300" />
-          </button>
-      
-      <div className="flex items-center flex-1 min-w-0">
-        <div className="flex-shrink-0 mr-2 sm:mr-3">
-          <div className="relative">
-            <ProfilePicture 
-              userId={partner?.uid} 
-              photoURL={partner?.photoURL} 
-              displayName={partner?.displayName}
-              size="md" 
-            />
-            {partnerData?.isOnline && (
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
-            )}
+      {/* Header - Professional WhatsApp Style */}
+      <div className="flex-shrink-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 z-30">
+        <div className="px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between max-w-4xl mx-auto w-full">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <button 
+              onClick={onClose}
+              className="p-2 -ml-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all group"
+              title="Back"
+            >
+              <ArrowLeftIcon className="h-5 w-5 sm:h-6 sm:w-6 text-gray-600 dark:text-gray-400 group-hover:scale-110 transition-transform" />
+            </button>
+            
+            <div className="relative group flex-shrink-0">
+              <ProfilePicture 
+                photoURL={partnerData?.photoURL} 
+                displayName={partnerData?.displayName} 
+                size="sm"
+                isOnline={partnerData?.isOnline}
+                borderStyle="border-2 border-white dark:border-gray-800 shadow-sm"
+              />
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white truncate tracking-tight">
+                {partnerData?.displayName || 'Partner'}
+              </h2>
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                {partnerData?.isOnline ? (
+                  <span className="flex items-center gap-1 text-[10px] sm:text-xs font-semibold text-green-500 whitespace-nowrap">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
+                    Online
+                  </span>
+                ) : (
+                  <span className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 truncate">
+                    {partnerData?.lastOnline ? `Last seen ${formatLastSeen(partnerData.lastOnline)}` : 'Offline'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 sm:gap-2 ml-2">
+            <button 
+              onClick={() => webRTC?.requestCall('audio')}
+              disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
+              className="p-2 sm:p-2.5 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-full text-green-600 dark:text-green-400 transition-all hover:scale-110 active:scale-95 disabled:opacity-30 disabled:grayscale"
+              title="Voice Call"
+            >
+              <PhoneIcon className="h-5 w-5 sm:h-5.5 sm:w-5.5" />
+            </button>
+            <button 
+              onClick={() => webRTC?.requestCall('video')}
+              disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
+              className="p-2 sm:p-2.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full text-blue-600 dark:text-blue-400 transition-all hover:scale-110 active:scale-95 disabled:opacity-30 disabled:grayscale"
+              title="Video Call"
+            >
+              <VideoCameraIcon className="h-5 w-5 sm:h-5.5 sm:w-5.5" />
+            </button>
+            <button 
+              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+              className="p-2 sm:p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-600 dark:text-gray-400 transition-all"
+            >
+              <EllipsisVerticalIcon className="h-5 w-5" />
+            </button>
           </div>
         </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white truncate">
-            {partner ? partner.displayName : 'Loading...'}
-          </h2>
-          <div className="flex items-center gap-1 sm:gap-2">
-            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
-              {partnerData?.isOnline ? 'Online' : 'Offline'}
-            </p>
-            <span className="text-[10px] sm:text-xs text-gray-400 hidden sm:inline">•</span>
-            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
-              {messageCount} {messageCount === 1 ? 'message' : 'messages'}
-            </p>
+        
+        {/* Sub-header Context Banner */}
+        <div className="bg-gray-50/50 dark:bg-gray-800/20 px-4 py-1.5 border-t border-gray-100 dark:border-gray-800/40">
+          <div className="max-w-4xl mx-auto w-full flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ChatBubbleLeftRightIcon className="h-3.5 w-3.5 text-blue-500/70" />
+              <span className="text-[10px] sm:text-[11px] font-bold text-blue-600/70 dark:text-blue-400/70 tracking-widest uppercase">
+                {topic?.isDirectChat ? 'Direct Chat' : topic?.question}
+              </span>
+            </div>
           </div>
         </div>
       </div>
-      
-      {/* Call Buttons - Visible on all screens */}
-      <div className="flex items-center space-x-1 sm:space-x-2">
-        {/* Audio Call */}
-        <button
-          onClick={() => {
-            console.log('Audio call button clicked');
-            if (!webRTC) {
-              toast.error('Call system not initialized');
-              return;
-            }
-            if (!partner) {
-              toast.error('No partner connected');
-              return;
-            }
-            if (webRTC.callStatus && webRTC.callStatus !== 'idle') {
-              toast.error('Call already in progress');
-              return;
-            }
-            webRTC.requestCall('audio');
-          }}
-          disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
-          className={`flex p-1.5 sm:p-2 rounded-full transition-all group ${
-            webRTC?.callStatus && webRTC.callStatus !== 'idle'
-              ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-800'
-              : 'hover:bg-green-100 dark:hover:bg-green-900/30'
-          }`}
-          title={webRTC?.callStatus && webRTC.callStatus !== 'idle' ? 'Call in progress' : 'Audio Call'}
-        >
-          <PhoneIcon className={`h-5 w-5 sm:h-5 sm:w-5 ${
-            webRTC?.callStatus && webRTC.callStatus !== 'idle'
-              ? 'text-gray-400 dark:text-gray-600'
-              : 'text-gray-600 dark:text-gray-400 group-hover:text-green-600 dark:group-hover:text-green-400'
-          }`} />
-        </button>
-
-        {/* Video Call */}
-        <button
-          onClick={() => {
-            console.log('Video call button clicked');
-            if (!webRTC) {
-              toast.error('Call system not initialized');
-              return;
-            }
-            if (!partner) {
-              toast.error('No partner connected');
-              return;
-            }
-            if (webRTC.callStatus && webRTC.callStatus !== 'idle') {
-              toast.error('Call already in progress');
-              return;
-            }
-            webRTC.requestCall('video');
-          }}
-          disabled={webRTC?.callStatus && webRTC.callStatus !== 'idle'}
-          className={`flex p-1.5 sm:p-2 rounded-full transition-all group ${
-            webRTC?.callStatus && webRTC.callStatus !== 'idle'
-              ? 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-800'
-              : 'hover:bg-blue-100 dark:hover:bg-blue-900/30'
-          }`}
-          title={webRTC?.callStatus && webRTC.callStatus !== 'idle' ? 'Call in progress' : 'Video Call'}
-        >
-          <VideoCameraIcon className={`h-5 w-5 sm:h-5 sm:w-5 ${
-            webRTC?.callStatus && webRTC.callStatus !== 'idle'
-              ? 'text-gray-400 dark:text-gray-600'
-              : 'text-gray-600 dark:text-gray-400 group-hover:text-blue-600 dark:group-hover:text-blue-400'
-          }`} />
-        </button>
-
-        {/* Options Menu - Always visible */}
-        <button
-          onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-          className="p-1.5 sm:p-2 hover:bg-gray-100/50 dark:hover:bg-gray-700/50 rounded-full transition-all"
-        >
-          <EllipsisVerticalIcon className="h-4 w-4 sm:h-5 sm:w-5 text-gray-700 dark:text-gray-300" />
-        </button>
-      </div>
-
       {/* Options Menu - Glassmorphism - Mobile Optimized */}
       {showOptionsMenu && (
         <div 
@@ -1786,441 +1834,174 @@ const TopicChat = ({ topic, onClose }) => {
           </button>
         </div>
       )}
-    </div>
-    
-    {/* Topic Title Banner - Transparent Glassmorphism */}
-    <div className="px-3 sm:px-4 py-1.5 sm:py-2 md:py-3 bg-gradient-to-r from-blue-50/50 to-purple-50/50 dark:from-blue-900/10 dark:to-purple-900/10 backdrop-blur-md border-t border-gray-200/20 dark:border-gray-700/20">
-      <div className="flex items-center gap-1.5 sm:gap-2">
-        <ChatBubbleLeftRightIcon className="h-3.5 sm:h-4 md:h-5 w-3.5 sm:w-4 md:w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-        <p className="text-[11px] sm:text-xs md:text-sm font-semibold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 truncate">
-          {topic?.question || 'Loading topic...'}
-        </p>
-      </div>
-    </div>
-  </div>
-  
-  {/* Messages Container - WhatsApp Style - Can shrink below content size */}
-  <div 
-    ref={messagesContainerRef}
-    className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden screenshot-protected bg-gradient-to-b from-gray-100/50 to-white/50 dark:from-gray-800/50 dark:to-gray-900/50"
-    style={{ 
-      WebkitOverflowScrolling: 'touch',
-      backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%23ffffff' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E\")",
-      backgroundAttachment: "fixed",
-      scrollbarWidth: 'thin',
-      scrollbarColor: 'rgba(156, 163, 175, 0.3) transparent'
-    }}
-  >
-      <div className="px-2 sm:px-3 md:px-4 py-2 sm:py-3 md:py-4 space-y-1.5 sm:space-y-2 max-w-3xl mx-auto w-full">
-        {messages.map((message) => (
-          <Message
-            key={message.id}
-            message={message}
-            isOwnMessage={message.userId === user.uid}
-            user={user}
-            partner={partner}
-            topicId={topic.id}
-            onReply={handleReply}
-            onImageClick={setViewingImage}
-            messageRefs={messageRefs}
-            onDelete={handleDeleteMessage}
-            onEdit={handleEditMessage}
-            onStartEdit={startEditing}
-          />
-        ))}
-        {partnerTyping && (
-          <div className="flex items-center space-x-2 text-gray-500 pl-2">
-            <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-            <span className="text-sm">{partnerData?.displayName} is typing...</span>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-    </div>
 
-    {/* Input Container - WhatsApp Style - Won't shrink, stays above keyboard */}
-    <div 
-      ref={inputContainerRef}
-      className="shrink-0 bg-white dark:bg-gray-800 shadow-lg border-t border-gray-200 dark:border-gray-700"
-      style={{
-        paddingBottom: 'max(env(safe-area-inset-bottom), 8px)'
-      }}
-    >
-      {(replyingTo || selectedFile || recordedAudio) && (
-        <div className="px-3 sm:px-4 py-2 sm:py-3 max-w-3xl mx-auto w-full space-y-2 sm:space-y-3">
-          {replyingTo && (
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2 flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                  Replying to {replyingTo.userId === user.uid ? 'yourself' : partnerData?.displayName}
-                </p>
-                <p className="text-xs sm:text-sm truncate text-gray-700 dark:text-gray-300">
-                  {replyingTo.text || (replyingTo.media ? 'Media message' : '')}
-                </p>
-              </div>
-              <button 
-                onClick={() => setReplyingTo(null)} 
-                className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors flex-shrink-0"
-              >
-                <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-              </button>
-            </div>
-          )}
-
-          {/* Recorded Audio Preview */}
-          {recordedAudio && !isRecording && (
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-3 flex items-center gap-3 shadow-lg">
-              <audio ref={previewAudioRef} src={recordedAudio.url} preload="metadata" />
-              
-              <button
-                onClick={deleteRecordedAudio}
-                className="p-2 hover:bg-white/20 rounded-full transition-all flex-shrink-0"
-                title="Discard recording"
-              >
-                <TrashIcon className="h-5 w-5 text-white" />
-              </button>
-
-              <button
-                onClick={togglePreviewPlayback}
-                className="p-2 bg-white/20 hover:bg-white/30 rounded-full transition-all flex-shrink-0"
-                title={previewPlaying ? 'Pause' : 'Play'}
-              >
-                {previewPlaying ? (
-                  <PauseIcon className="h-5 w-5 text-white" />
-                ) : (
-                  <PlayIcon className="h-5 w-5 text-white" />
-                )}
-              </button>
-
-              <div className="flex-1 flex items-center gap-2">
-                <div className="flex-1 h-8 flex items-center gap-0.5">
-                  {[...Array(20)].map((_, i) => {
-                    const barProgress = (i / 20);
-                    const isActive = previewProgress >= barProgress;
-                    const height = 8 + Math.sin(i * 0.5) * 12;
-                    
-                    return (
-                      <div
-                        key={i}
-                        className={`flex-1 rounded-full transition-all duration-100 ${
-                          isActive ? 'bg-white' : 'bg-white/40'
-                        }`}
-                        style={{ height: `${height}px` }}
-                      />
-                    );
-                  })}
+      {/* Messages Container - WhatsApp Style */}
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-gradient-to-b from-gray-100 to-white dark:from-gray-900 dark:to-gray-950 overscroll-contain"
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-y',
+          overscrollBehaviorY: 'contain',
+          backgroundImage: "url(\"data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5z' fill='%236366f1' fill-opacity='0.03'/%3E%3C/svg%3E\")",
+          backgroundAttachment: 'fixed'
+        }}
+      >
+        <div className="px-3 sm:px-4 py-4 space-y-2 max-w-4xl mx-auto w-full">
+          {messages.map((message) => (
+            <Message
+              key={message.id}
+              message={message}
+              isOwnMessage={message.userId === user.uid}
+              user={user}
+              partner={partner}
+              topicId={topic.id}
+              onReply={handleReply}
+              onImageClick={setViewingImage}
+              messageRefs={messageRefs}
+              onDelete={handleDeleteMessage}
+              onEdit={handleEditMessage}
+              onStartEdit={startEditing}
+            />
+          ))}
+          {partnerTyping && (
+            <div className="flex items-end gap-2 max-w-[85%] sm:max-w-[75%] animate-in fade-in slide-in-from-bottom-2 duration-300 px-2 py-1">
+              <ProfilePicture 
+                photoURL={partnerData?.photoURL} 
+                displayName={partnerData?.displayName} 
+                size="sm" 
+                className="mb-1 hidden sm:block" 
+              />
+              <div className="bg-white dark:bg-gray-800 rounded-2xl rounded-bl-[4px] px-4 py-3 shadow-sm border border-gray-100 dark:border-gray-700/50">
+                <div className="typing-indicator scale-90 opacity-70">
+                  <span></span><span></span><span></span>
                 </div>
-                <span className="text-xs text-white font-mono whitespace-nowrap">
-                  {formatVoiceTime(previewPlaying ? previewCurrentTime : previewDuration)}
-                </span>
               </div>
-
-              <button
-                onClick={sendRecordedAudio}
-                disabled={uploadingMedia}
-                className="p-3 bg-white/20 hover:bg-white/30 disabled:opacity-50 rounded-full transition-all flex-shrink-0"
-                title="Send voice message"
-              >
-                <PaperAirplaneIcon className="h-5 w-5 text-white" />
-              </button>
             </div>
           )}
+          <div ref={messagesEndRef} className="h-2" />
+        </div>
+      </div>
+
+      {/* Shared Input Area - Professional Floating Style */}
+      <div className="flex-shrink-0 z-40 bg-gradient-to-t from-gray-50/80 to-transparent dark:from-black/80 dark:to-transparent pt-4 pb-2">
+        <div className="max-w-4xl mx-auto w-full px-2 sm:px-4">
           
-          {selectedFile && (
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
-              <div className="flex items-center gap-2">
-                <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 rounded-md overflow-hidden">
-                  {selectedFile.type.startsWith('video/') ? (
-                    <video
-                      src={previewUrl}
-                      className="w-full h-full object-cover"
-                      muted
-                    />
-                  ) : (
-                    <img
-                      src={previewUrl}
-                      alt="Selected"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                  {uploadingMedia && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                  )}
-                  
-                  {/* Timer icon overlay — opens picker */}
-                  {!uploadingMedia && !selectedFile.type.startsWith('video/') && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowTimerPicker(!showTimerPicker);
-                      }}
-                      className={`absolute bottom-0 right-0 w-full h-1/3 flex items-center justify-center transition-all backdrop-blur-md ${
-                        disappearingTimer 
-                          ? 'bg-blue-600/70 hover:bg-blue-600/90' 
-                          : 'bg-black/60 hover:bg-black/80'
-                      }`}
-                      title="Set disappearing timer"
-                    >
-                      {disappearingTimer ? (
-                        <div className="flex items-center gap-0.5">
-                          <ClockIcon className="w-3 h-3 text-white" />
-                          <span className="text-[10px] font-bold text-white">
-                            {timerOptions.find(t => t.value === disappearingTimer)?.label}
-                          </span>
-                        </div>
-                      ) : (
-                        <ClockIcon className="w-3 h-3 text-white opacity-80" />
-                      )}
-                    </button>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {uploadingMedia ? 'Sending...' : selectedFile.type.startsWith('video/') ? 'Video' : 'Photo'}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {uploadingMedia 
-                      ? 'Please wait...' 
-                      : disappearingTimer 
-                        ? `View once · ${timerOptions.find(t => t.value === disappearingTimer)?.label}`
-                        : 'Ready to send'}
-                  </p>
-                </div>
-                {!uploadingMedia && (
-                  <button
-                    onClick={() => {
-                      setSelectedFile(null);
-                      setPreviewUrl(null);
-                      setShowTimerPicker(false);
-                      setDisappearingTimer(null);
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = '';
-                      }
-                    }}
-                    className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full transition-colors"
-                  >
-                    <XMarkIcon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  </button>
-                )}
-              </div>
-
-              {/* Timer Picker Bottom-Sheet */}
-              {showTimerPicker && !uploadingMedia && !selectedFile.type.startsWith('video/') && (
-                <div className="mt-2 pt-2 border-t border-gray-200/60 dark:border-gray-600/40">
-                  <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wider">
-                    Disappear after viewing
-                  </p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {timerOptions.map((option) => (
-                      <button
-                        key={option.label}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDisappearingTimer(option.value);
-                          setShowTimerPicker(false);
-                        }}
-                        className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                          disappearingTimer === option.value
-                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 scale-105'
-                            : option.value === null
-                              ? 'bg-gray-200/80 dark:bg-gray-600/50 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
-                        }`}
-                      >
-                        {option.value === null ? '✕ Off' : `⏱ ${option.label}`}
-                      </button>
-                    ))}
+          {(replyingTo || selectedFile || recordedAudio) && (
+            <div className="mb-2 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl p-2 sm:p-3 border border-gray-200/50 dark:border-gray-700/50 animate-in slide-in-from-bottom-2 duration-300">
+              {replyingTo && (
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-xl p-2.5 flex items-start gap-3">
+                  <div className="w-1 h-full bg-blue-500 rounded-full" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                      Replying to {replyingTo.userId === user.uid ? 'yourself' : partnerData?.displayName}
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                      {replyingTo.text || (replyingTo.media ? 'Media message' : 'Message')}
+                    </p>
                   </div>
+                  <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-full">
+                    <XMarkIcon className="h-4 w-4 text-gray-400" />
+                  </button>
+                </div>
+              )}
+              {/* File/Audio Previews */}
+              {recordedAudio && !isRecording && (
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-3 flex items-center gap-3 shadow-lg">
+                  <audio ref={previewAudioRef} src={recordedAudio.url} />
+                  <button onClick={deleteRecordedAudio} className="p-2 hover:bg-white/10 rounded-full"><TrashIcon className="h-5 w-5 text-white" /></button>
+                  <button onClick={togglePreviewPlayback} className="p-2 bg-white/20 rounded-full text-white">
+                    {previewPlaying ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
+                  </button>
+                  <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                    <div className="h-full bg-white transition-all duration-100" style={{ width: `${previewProgress * 100}%` }} />
+                  </div>
+                  <span className="text-[10px] font-bold text-white font-mono">{formatVoiceTime(previewPlaying ? previewCurrentTime : previewDuration)}</span>
                 </div>
               )}
             </div>
           )}
-        </div>
-      )}
-
-        {/* Message Input Area - Professional WhatsApp Style */}
-        <div 
-          className="flex-shrink-0 px-2 sm:px-3 md:px-4 pt-2 sm:pt-2.5 md:pt-3 pb-4 max-w-3xl mx-auto w-full bg-white dark:bg-gray-900"
-          style={{
-            paddingBottom: shouldReserveSpaceForNav 
-              ? 'calc(4rem + max(env(safe-area-inset-bottom), 1rem))'
-              : 'calc(max(env(safe-area-inset-bottom), 0.5rem) + 0.75rem)'
-          }}
-        >
-          
-          {/* Recording Active Bar */}
-          {isRecording && (
-            <div className="bg-gradient-to-r from-red-600 to-red-500 rounded-2xl p-3 sm:p-4 flex items-center gap-2 sm:gap-3 shadow-2xl mb-2">
-              <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                <div className="relative">
-                  <div className={`w-3 h-3 bg-white rounded-full ${isPaused ? '' : 'animate-pulse'}`}></div>
-                  {!isPaused && <div className="absolute inset-0 w-3 h-3 bg-white rounded-full animate-ping opacity-75"></div>}
-                </div>
-                
-                <div className="flex-1 flex items-center gap-1 min-w-0">
-                  {audioWaveform.map((height, i) => (
-                    <div
-                      key={i}
-                      className={`flex-1 rounded-full transition-all duration-100 ${isPaused ? 'bg-white/50' : 'bg-white/90'}`}
-                      style={{ 
-                        height: `${isPaused ? 4 : Math.max(4, 4 + height * 24)}px`,
-                        minHeight: '4px'
-                      }}
-                    />
-                  ))}
-                </div>
-                
-                <span className="text-sm sm:text-base text-white font-mono font-bold whitespace-nowrap">
-                  {formatVoiceTime(recordingDuration)}
-                  {isPaused && <span className="text-white/60 text-xs ml-1">paused</span>}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                {/* Pause/Resume Button */}
-                <button
-                  onClick={() => {
-                    const recorder = mediaRecorderRef.current;
-                    if (!recorder) return;
-                    
-                    if (isPaused) {
-                      recorder.resume();
-                      setIsPaused(false);
-                      // Resume timer
-                      recordingTimerRef.current = setInterval(() => {
-                        setRecordingDuration(prev => {
-                          const next = prev + 1;
-                          recordingDurationRef.current = next;
-                          return next;
-                        });
-                      }, 1000);
-                      // Resume waveform
-                      animateWaveform();
-                    } else {
-                      recorder.pause();
-                      setIsPaused(true);
-                      // Pause timer
-                      clearInterval(recordingTimerRef.current);
-                      // Pause waveform
-                      if (animationFrameRef.current) {
-                        cancelAnimationFrame(animationFrameRef.current);
-                        animationFrameRef.current = null;
-                      }
-                    }
-                  }}
-                  className="p-2 hover:bg-white/20 rounded-full transition-all flex-shrink-0"
-                  title={isPaused ? 'Resume' : 'Pause'}
-                >
-                  {isPaused ? (
-                    <PlayIcon className="h-5 w-5 text-white" />
-                  ) : (
-                    <PauseIcon className="h-5 w-5 text-white" />
-                  )}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsPaused(false);
-                    cancelRecording();
-                  }}
-                  className="p-2 hover:bg-white/20 rounded-full transition-all flex-shrink-0"
-                  title="Cancel"
-                >
-                  <XMarkIcon className="h-5 w-5 text-white" />
-                </button>
-                
-                <button
-                  onClick={() => {
-                    setIsPaused(false);
-                    stopRecording({ autoSend: false });
-                  }}
-                  disabled={uploadingMedia}
-                  className="p-2.5 bg-white/20 hover:bg-white/30 disabled:opacity-50 rounded-full transition-all flex-shrink-0"
-                  title="Done"
-                >
-                  <CheckIcon className="h-5 w-5 text-white" />
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Main Input Bar */}
-          <div className="flex items-end gap-2 mb-1">
-            {/* Emoji Button - Left Side */}
+          <div 
+            className={`flex items-end gap-2 p-1.5 bg-white dark:bg-gray-800 rounded-3xl transition-all duration-300 ring-1 ring-black/[0.02] ${isInputFocused ? 'shadow-[0_0_20px_rgba(59,130,246,0.15)] border-blue-500/30 ring-2 ring-blue-500/20' : 'shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1),0_8px_30px_rgb(0,0,0,0.12)] border border-gray-100 dark:border-gray-700/50'}`}
+            style={{
+              marginBottom: isKeyboardOpen ? '4px' : 'max(env(safe-area-inset-bottom), 12px)'
+            }}
+          >
             <button
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
-              title="Add emoji"
+              className="p-2.5 sm:p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-full transition-all text-gray-500 dark:text-gray-400 shrink-0"
             >
-              <FaceSmileIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+              <FaceSmileIcon className="h-5 w-5 sm:h-6 sm:w-6" />
             </button>
-            
-            {/* Input Field - Center */}
-            <div className="flex-1 flex items-end gap-2 bg-gray-100 dark:bg-gray-700 rounded-full px-3 py-2 border-2 border-transparent focus-within:border-blue-500 dark:focus-within:border-purple-500 transition-colors">
+
+            <div className="flex-1 bg-gray-50/50 dark:bg-gray-900/50 rounded-2xl px-3 py-2 min-h-[44px] flex items-center transition-colors focus-within:bg-white dark:focus-within:bg-gray-900 border border-transparent focus-within:border-blue-500/20">
               <textarea
                 ref={inputRef}
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={(e) => {
+                  setNewMessage(e.target.value);
+                  if (inputRef.current) {
+                    inputRef.current.style.height = 'auto';
+                    inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
+                  }
+                }}
+                onFocus={() => {
+                  setIsInputFocused(true);
+                  triggerHaptic('light');
+                }}
+                onBlur={() => setIsInputFocused(false)}
                 onKeyDown={handleKeyDown}
                 onInput={handleTyping}
-                placeholder="Type a message..."
-                className="flex-1 bg-transparent border-none outline-none focus:outline-none focus:ring-0 resize-none max-h-20 text-sm leading-tight text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+                placeholder="Message..."
+                className="flex-1 bg-transparent border-none outline-none focus:ring-0 resize-none max-h-32 text-sm sm:text-base leading-relaxed text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 py-1"
                 rows="1"
-                style={{ fontSize: '16px' }}
               />
             </div>
 
-            {/* Right Side Buttons - Conditional */}
-            {newMessage.trim() || selectedFile ? (
-              /* Send Button - Shows when typing */
-              <button
-                onClick={handleSendMessage}
-                disabled={isLoading || uploadingMedia}
-                className="p-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full transition-all flex-shrink-0 shadow-lg"
-                title="Send message"
-              >
-                <PaperAirplaneIcon className="h-5 w-5" />
-              </button>
-            ) : (
-              /* Media & Mic Buttons - Shows when not typing */
-              <>
+            <div className="flex items-center gap-1 sm:gap-2 px-1 shrink-0 overflow-hidden transition-all duration-300">
+              {isInputFocused && !newMessage.trim() && !selectedFile && !recordedAudio ? (
                 <button
-                  onClick={() => setShowMediaMenu(!showMediaMenu)}
-                  className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-all flex-shrink-0"
-                  title="Attach media"
-                >
-                  <PhotoIcon className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (isRecording) {
-                      setIsPaused(false);
-                      stopRecording({ autoSend: true });
-                    } else {
-                      startRecording();
-                    }
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // prevent input blur
+                    setIsInputFocused(false);
                   }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`p-2.5 rounded-full transition-all flex-shrink-0 select-none shadow-lg ${
-                    isRecording
-                      ? `bg-red-500 hover:bg-red-600 text-white scale-110 ${isPaused ? '' : 'animate-pulse'}`
-                      : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white'
-                  }`}
-                  title={isRecording ? 'Tap to send' : 'Tap to record voice'}
+                  className="p-2 sm:p-2.5 rounded-full transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
-                  <MicrophoneIcon className="h-5 w-5" />
+                  <ChevronRightIcon className="h-5 w-5" />
                 </button>
-              </>
-            )}
+              ) : !newMessage.trim() && !selectedFile && !recordedAudio ? (
+                <>
+                  <button
+                    onClick={() => setShowMediaMenu(!showMediaMenu)}
+                    className="p-2.5 sm:p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-full transition-all text-gray-500 dark:text-gray-400"
+                  >
+                    <PlusIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                  </button>
+                  <button
+                    onClick={isRecording ? () => stopRecording({ autoSend: true }) : startRecording}
+                    className={`p-2.5 sm:p-3 rounded-full shadow-lg transition-all hover:scale-110 active:scale-95 ${
+                      isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white'
+                    }`}
+                  >
+                    <MicrophoneIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onMouseDown={(e) => e.preventDefault()} // prevent blur when clicking send
+                  onClick={handleSendMessage}
+                  disabled={isLoading}
+                  className="p-2.5 sm:p-3 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-full shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 transition-all group hover:scale-110 active:scale-95 disabled:opacity-50"
+                >
+                  <PaperAirplaneIcon className="h-5 w-5 sm:h-6 sm:w-6 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
+      </div>
 
         {/* Media Menu - Professional Compact Bottom Sheet */}
         {showMediaMenu && (
@@ -2566,7 +2347,6 @@ const TopicChat = ({ topic, onClose }) => {
       </style>
 
       {/* Call UI now handled globally in Layout component */}
-    </div>
     </div>
   );
 };

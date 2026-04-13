@@ -39,12 +39,6 @@ const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
 
-// Set persistence to LOCAL by default
-setPersistence(auth, browserLocalPersistence)
-  .catch(error => {
-    console.error('Error setting auth persistence:', error);
-  });
-
 const rtdb = getDatabase(app);
 const storage = getStorage(app);
 
@@ -317,17 +311,13 @@ const requestNotificationPermission = async () => {
   }
 };
 
-// Function to handle incoming messages
-const onMessageListener = () => {
-  if (!messaging) {
-    return Promise.reject(new Error('Messaging not initialized'));
-  }
+// Function to handle incoming messages (foreground)
+const onMessageListener = (callback) => {
+  if (!messaging) return () => {};
   
-  return new Promise((resolve) => {
-    onMessage(messaging, (payload) => {
-      console.log('Message received:', payload);
-      resolve(payload);
-    });
+  return onMessage(messaging, (payload) => {
+    console.log('Foreground message received:', payload);
+    callback(payload);
   });
 };
 
