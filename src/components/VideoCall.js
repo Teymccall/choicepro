@@ -3,12 +3,10 @@ import {
   PhoneIcon,
   MicrophoneIcon,
   VideoCameraIcon,
-  XMarkIcon,
   VideoCameraSlashIcon,
   SpeakerXMarkIcon,
   SpeakerWaveIcon
 } from '@heroicons/react/24/solid';
-import { PhoneIcon as PhoneOutline, VideoCameraIcon as VideoOutline } from '@heroicons/react/24/outline';
 
 const VideoCall = ({
   localVideoRef,
@@ -59,13 +57,7 @@ const VideoCall = ({
     const sourceEl = localVideoRef?.current;
     const pipEl = localPiPVideoRef.current;
     
-    console.log('🔄 Sync effect running', { 
-      hasSourceEl: !!sourceEl, 
-      hasPipEl: !!pipEl, 
-      sourceSrcObject: !!sourceEl?.srcObject,
-      pipSrcObject: !!pipEl?.srcObject,
-      callStatus 
-    });
+    // Sync local stream to PiP preview
     
     if (!sourceEl || !pipEl) {
       return;
@@ -73,10 +65,9 @@ const VideoCall = ({
 
     const syncStream = () => {
       if (sourceEl.srcObject && pipEl.srcObject !== sourceEl.srcObject) {
-        console.log('📹 Syncing local stream to PiP:', sourceEl.srcObject);
         pipEl.srcObject = sourceEl.srcObject;
         pipEl.muted = true;
-        pipEl.play().catch((err) => console.error('Error playing local PiP video:', err));
+        pipEl.play().catch(() => {});
         setHasLocalPreview(true);
       }
     };
@@ -181,17 +172,7 @@ const VideoCall = ({
   // Ensure local video plays when ref is available
   useEffect(() => {
     if (localVideoRef?.current && localVideoRef.current.srcObject) {
-      console.log('Local video ref ready, attempting to play', {
-        srcObject: localVideoRef.current.srcObject,
-        tracks: localVideoRef.current.srcObject?.getTracks().map(t => ({
-          kind: t.kind,
-          enabled: t.enabled,
-          readyState: t.readyState
-        }))
-      });
-      localVideoRef.current.play().catch(err => {
-        console.error('Error playing local video:', err);
-      });
+      localVideoRef.current.play().catch(() => {});
       setHasLocalPreview(true);
     }
   }, [localVideoRef, callStatus]);
@@ -220,10 +201,9 @@ const VideoCall = ({
 
     const syncCallingDisplay = () => {
       if (sourceEl.srcObject && displayEl.srcObject !== sourceEl.srcObject) {
-        console.log('📹 Syncing local stream to calling display:', sourceEl.srcObject);
         displayEl.srcObject = sourceEl.srcObject;
         displayEl.muted = true;
-        displayEl.play().catch((err) => console.error('Error playing calling display video:', err));
+        displayEl.play().catch(() => {});
       }
     };
 
@@ -238,15 +218,7 @@ const VideoCall = ({
     };
   }, [localVideoRef, callStatus]);
 
-  // Debug: Log component render and ref state
-  console.log('🎬 VideoCall render:', {
-    callStatus,
-    callType,
-    hasLocalVideoRef: !!localVideoRef,
-    hasLocalVideoCurrent: !!localVideoRef?.current,
-    localVideoSrcObject: !!localVideoRef?.current?.srcObject,
-    localVideoTracks: localVideoRef?.current?.srcObject?.getTracks().map(t => t.kind)
-  });
+
 
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900 flex flex-col">
@@ -291,26 +263,9 @@ const VideoCall = ({
                   muted={false}
                   className="w-full h-full object-cover"
                   onLoadedMetadata={(e) => {
-                    console.log('🎬 Remote video metadata loaded');
-                    console.log('📹 Video element srcObject:', e.target.srcObject);
-                    console.log('🎵 Tracks:', e.target.srcObject?.getTracks().map(t => ({
-                      kind: t.kind,
-                      enabled: t.enabled,
-                      muted: t.muted,
-                      readyState: t.readyState
-                    })));
-                    console.log('🔇 Video element muted:', e.target.muted);
-                    console.log('📢 Video element volume:', e.target.volume);
-                    
-                    // Ensure audio is enabled
                     e.target.muted = false;
                     e.target.volume = 1.0;
                   }}
-                  onPlay={() => {
-                    console.log('▶️ Remote video started playing');
-                    console.log('🔊 Video volume during play:', remoteVideoRef.current?.volume);
-                  }}
-                  onError={(e) => console.error('❌ Remote video error:', e)}
                 />
                 
                 {/* Show fallback if no remote stream after 3 seconds */}
@@ -342,13 +297,8 @@ const VideoCall = ({
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover mirror"
-                  onLoadedMetadata={(e) => {
-                    console.log('🎬 Calling display video metadata loaded');
-                    console.log('📹 Calling display srcObject:', e.target.srcObject);
-                  }}
-                  onPlay={() => console.log('▶️ Calling display video started playing')}
-                  onError={(e) => console.error('❌ Calling display video error:', e)}
+                  className="w-full h-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
                 />
                 {/* Debug: Show if no stream after 2 seconds */}
                 {callStatus === 'calling' && !hasLocalPreview && (
@@ -410,32 +360,10 @@ const VideoCall = ({
               muted={false}
               className="hidden"
               onLoadedMetadata={(e) => {
-                console.log('🎵 Audio metadata loaded');
-                console.log('🔊 Audio srcObject:', e.target.srcObject);
-                console.log('🎧 Audio tracks:', e.target.srcObject?.getTracks().map(t => ({
-                  kind: t.kind,
-                  enabled: t.enabled,
-                  muted: t.muted,
-                  readyState: t.readyState
-                })));
-                console.log('🔇 Audio element muted:', e.target.muted);
-                console.log('📢 Audio element volume:', e.target.volume);
-                
-                // Force play for audio calls
-                e.target.play().then(() => {
-                  console.log('✅ Audio playing successfully');
-                }).catch(err => {
-                  console.error('❌ Audio play error:', err);
-                  // Try unmuting and playing again
-                  e.target.muted = false;
-                  e.target.volume = 1.0;
-                  e.target.play();
-                });
+                e.target.muted = false;
+                e.target.volume = 1.0;
+                e.target.play().catch(() => {});
               }}
-              onPlay={() => console.log('▶️ Audio started playing')}
-              onPause={() => console.log('⏸️ Audio paused')}
-              onError={(e) => console.error('❌ Audio error:', e)}
-              onVolumeChange={(e) => console.log('🔊 Volume changed:', e.target.volume)}
             />
           </>
         )}
@@ -514,36 +442,19 @@ const VideoCall = ({
           playsInline
           muted
           className="hidden"
-          onLoadedMetadata={(e) => {
-            console.log('🎬 Persistent local video metadata loaded');
-            console.log('📹 Persistent video srcObject:', e.target.srcObject);
-            console.log('🎥 Persistent video tracks:', e.target.srcObject?.getTracks().map(t => ({
-              kind: t.kind,
-              enabled: t.enabled,
-              readyState: t.readyState
-            })));
-          }}
-          onPlay={() => console.log('▶️ Persistent local video started playing')}
-          onError={(e) => console.error('❌ Persistent local video error:', e)}
         />
       )}
 
       {/* Local Video (Picture in Picture) - Show during all video call states */}
       {callType === 'video' && callStatus !== 'idle' && (
-        <div className="absolute top-20 right-4 w-40 h-52 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 bg-gray-800 z-20">
+        <div className="absolute top-20 right-4 w-36 h-48 sm:w-40 sm:h-52 rounded-2xl overflow-hidden shadow-2xl border-2 border-white/30 bg-gray-800 z-20">
           <video
             ref={localPiPVideoRef}
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover mirror"
-            onLoadedMetadata={(e) => {
-              console.log('📹 PiP local video loaded');
-              console.log('🎥 PiP srcObject:', e.target.srcObject);
-              console.log('🎬 PiP tracks:', e.target.srcObject?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled })));
-            }}
-            onPlay={() => console.log('▶️ PiP local video playing')}
-            onError={(e) => console.error('❌ PiP local video error:', e)}
+            className="w-full h-full object-cover"
+            style={{ transform: 'scaleX(-1)' }}
           />
           {!hasLocalPreview && (
             <div className="absolute inset-0 bg-gray-800/80 flex items-center justify-center text-white text-xs tracking-wide">
@@ -593,10 +504,7 @@ const VideoCall = ({
 
           {/* End Call Button */}
           <button
-            onClick={() => {
-              console.log('🔴 End call button clicked!');
-              onEndCall();
-            }}
+            onClick={onEndCall}
             className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all transform hover:scale-110 active:scale-95 shadow-lg z-40"
             title="End Call"
           >
@@ -623,12 +531,6 @@ const VideoCall = ({
           )}
         </div>
       </div>
-
-      <style jsx>{`
-        .mirror {
-          transform: scaleX(-1);
-        }
-      `}</style>
     </div>
   );
 };

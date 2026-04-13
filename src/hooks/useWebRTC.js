@@ -12,6 +12,7 @@ export const useWebRTC = (user, partner) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const callEpochRef = useRef(null);
   const [connectionQuality, setConnectionQuality] = useState('good');
   const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [pendingCallType, setPendingCallType] = useState(null);
@@ -125,11 +126,15 @@ export const useWebRTC = (user, partner) => {
     return webRTCConnectionRef.current;
   }, [callStatus, connectionQuality, MAX_RECONNECTION_ATTEMPTS]);
 
-  // Start call timer
-  const startCallTimer = useCallback(() => {
-    callTimerRef.current = setInterval(() => {
-      setCallDuration(prev => prev + 1);
-    }, 1000);
+  // Start call timer — uses a shared epoch so both partners show the same time
+  const startCallTimer = useCallback((epoch) => {
+    if (callTimerRef.current) clearInterval(callTimerRef.current);
+    callEpochRef.current = epoch || Date.now();
+    const tick = () => {
+      setCallDuration(Math.floor((Date.now() - callEpochRef.current) / 1000));
+    };
+    tick(); // immediate first tick
+    callTimerRef.current = setInterval(tick, 1000);
   }, []);
 
   // Stop call timer
@@ -350,19 +355,33 @@ export const useWebRTC = (user, partner) => {
       const unsubscribe = onValue(callRef, async (snapshot) => {
         const callData = snapshot.val();
         
-        console.log('📡 Caller: Call status update:', { callData, hasData: !!callData, status: callData?.status });
-        
-        // Only end call if explicitly ended/rejected, not if data is temporarily null
+        // Ignore transient null data (Firebase sync delay, especially on mobile PWA)
         if (!callData) {
-          console.warn('⚠️ Caller: Received null call data - may be temporary Firebase sync issue');
           return;
         }
         
-        // Check if call was ended or rejected
+        // Check if call was ended or rejected by the REMOTE party.
+        // Do LOCAL-ONLY cleanup — do NOT call endCall() which writes back
+        // to Firebase and creates a feedback loop that crashes PWA calls.
         if (callData.status === 'ended' || callData.status === 'rejected') {
           console.log('📞 Caller: Call ended/rejected by remote party');
-          endCall();
           unsubscribe();
+          
+          // Local cleanup only — no Firebase write
+          if (webRTCConnectionRef.current) {
+            webRTCConnectionRef.current.close();
+            webRTCConnectionRef.current = null;
+          }
+          stopCallTimer();
+          stopQualityMonitoring();
+          setCallStatus('idle');
+          setCurrentCallId(null);
+          setCallType(null);
+          setIsAudioEnabled(true);
+          setIsVideoEnabled(true);
+          setConnectionQuality('good');
+          hasShownConnectedToastRef.current = false;
+          toast('Call ended');
           return;
         }
         
@@ -372,21 +391,20 @@ export const useWebRTC = (user, partner) => {
           await connection.setRemoteAnswer(callData.answer);
           
           // Process queued recipient ICE candidates after answer is set
-          console.log(`Processing ${recipientCandidatesQueueRef.current.length} queued candidates`);
           recipientCandidatesQueueRef.current.forEach(candidate => {
             connection.addIceCandidate(candidate);
           });
           recipientCandidatesQueueRef.current = [];
         }
 
-        // Transition to active when recipient accepts
+        // Transition to active when recipient accepts — use answeredAt as shared timer epoch
         if (callData.status === 'active' && callStatus !== 'active') {
           console.log('✅ Caller: Call accepted! Transitioning to active state');
           setCallStatus('active');
-          startCallTimer();
+          startCallTimer(callData.answeredAt || Date.now());
           startQualityMonitoring();
           
-          // Show toast only once using ref to prevent duplicates from rapid Firebase updates
+          // Show toast only once
           if (!hasShownConnectedToastRef.current) {
             hasShownConnectedToastRef.current = true;
             toast.success('Call connected!');
@@ -545,16 +563,12 @@ export const useWebRTC = (user, partner) => {
         throw new Error(`Firebase error: ${fbError.message}`);
       }
 
-      console.log('🎉 Step 9: Setting local status to active...');
       // NOW set local status to active
       setCallStatus('active');
-      console.log('✅ Step 9 Complete: Local status set to active');
 
-      console.log('⏰ Step 10: Starting call timer and quality monitoring...');
-      // Start call timer and quality monitoring
-      startCallTimer();
+      // Start call timer using our own answeredAt as epoch (synced with caller via Firebase)
+      startCallTimer(Date.now());
       startQualityMonitoring();
-      console.log('✅ Step 10 Complete: Timer and monitoring started');
 
       // Remove incoming call notification
       if (user?.uid) {
@@ -592,28 +606,29 @@ export const useWebRTC = (user, partner) => {
       const callStatusUnsubscribe = onValue(callStatusRef, (snapshot) => {
         const callData = snapshot.val();
         
-        console.log('📡 Receiver: Call status update:', { callData, hasData: !!callData });
+        // Ignore transient null data (mobile PWA Firebase sync delay)
+        if (!callData) return;
         
-        // Only end call if explicitly ended/rejected, NOT if data is temporarily null
-        // This prevents premature call ending due to Firebase sync delays
-        if (callData && (callData.status === 'ended' || callData.status === 'rejected')) {
-          console.log('📞 Call ended by remote party - status:', callData.status);
-          // Clean up listener
+        // Only end call if explicitly ended/rejected
+        if (callData.status === 'ended' || callData.status === 'rejected') {
+          console.log('📞 Receiver: Call ended by remote party');
           callStatusUnsubscribe();
           
-          // Close connection and reset state
+          // Local cleanup only — no Firebase write
           if (webRTCConnectionRef.current) {
             webRTCConnectionRef.current.close();
             webRTCConnectionRef.current = null;
           }
           stopCallTimer();
+          stopQualityMonitoring();
           setCallStatus('idle');
           setCurrentCallId(null);
           setCallType(null);
           setIsAudioEnabled(true);
           setIsVideoEnabled(true);
-          hasShownConnectedToastRef.current = false; // Reset for next call
-          // Don't show toast here - only show for person who clicks end button
+          setConnectionQuality('good');
+          hasShownConnectedToastRef.current = false;
+          toast('Call ended');
         }
       });
 

@@ -1,8 +1,6 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import ConnectPartner from '../components/ConnectPartner';
 import { useAuth } from '../context/AuthContext';
-import { HeartIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 
 const Dashboard = () => {
   const { user, partner } = useAuth();
@@ -30,31 +28,10 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Partner Connection Section */}
-        {partner && (
-          <div className="mb-6">
-            <ConnectPartner />
-          </div>
-        )}
-
-        {/* No Partner Connected State */}
-        {!partner && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="h-16 w-16 rounded-2xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-4">
-              <HeartIcon className="h-8 w-8 text-blue-500" />
-            </div>
-            <h3 className="text-[17px] font-bold text-gray-900 dark:text-white mb-2">Connect with a Partner</h3>
-            <p className="text-[13px] text-gray-400 dark:text-gray-500 mb-6 max-w-[260px]">
-              Link up with your partner to start discussing topics and tracking your decisions together.
-            </p>
-            <Link
-              to="/settings"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold rounded-xl transition-colors shadow-sm"
-            >
-              Connect Now <ArrowRightIcon className="h-4 w-4" />
-            </Link>
-          </div>
-        )}
+        {/* Partner Connection Section - Always show, component handles both states */}
+        <div className="mb-6">
+          <ConnectPartner />
+        </div>
 
       </div>
     </div>

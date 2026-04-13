@@ -1148,9 +1148,11 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // Capture uid upfront — snapshot callbacks may fire after auth state changes
+        const currentUid = user.uid;
         try {
           // Get user data from Firestore
-          const userRef = doc(db, 'users', user.uid);
+          const userRef = doc(db, 'users', currentUid);
           const userDoc = await getDoc(userRef);
           
           // Set basic user data immediately
@@ -1163,7 +1165,7 @@ export const AuthProvider = ({ children }) => {
             // If user doc doesn't exist, create it
             try {
               await setDoc(userRef, {
-                uid: user.uid,
+                uid: currentUid,
                 email: user.email,
                 displayName: user.displayName,
                 createdAt: Timestamp.now(),
@@ -1181,6 +1183,8 @@ export const AuthProvider = ({ children }) => {
           const userDocUnsubscribe = createResilientSnapshot(
             userRef,
             async (docSnapshot) => {
+              // Guard: callback may fire after user signed out
+              if (!currentUid) return;
               if (docSnapshot.exists()) {
                 const userData = docSnapshot.data();
                 
@@ -1207,7 +1211,7 @@ export const AuthProvider = ({ children }) => {
                       // This ensures the partner who didn't initiate the connection
                       // also gets their RTDB entries created (fixes "no refresh" issue)
                       try {
-                        const userConnectionRef = ref(rtdb, `connections/${user.uid}`);
+                        const userConnectionRef = ref(rtdb, `connections/${currentUid}`);
                         const connectionSnapshot = await get(userConnectionRef);
                         // Only create if not already set (avoid overwriting)
                         if (!connectionSnapshot.exists() || connectionSnapshot.val()?.partnerId !== userData.partnerId) {
@@ -1220,7 +1224,7 @@ export const AuthProvider = ({ children }) => {
                         }
 
                         // Also ensure presence is set
-                        const userPresenceRef = ref(rtdb, `presence/${user.uid}`);
+                        const userPresenceRef = ref(rtdb, `presence/${currentUid}`);
                         await set(userPresenceRef, {
                           isOnline: true,
                           lastOnline: serverTimestamp(),
